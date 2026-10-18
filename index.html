@@ -1,0 +1,1267 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>تجميع طلبات المستشفيات - FONDANT CHOCO</title>
+<link rel="icon" type="image/jpeg" href="https://i.postimg.cc/WbJw6TdV/Orig-LOGO-Square.jpg">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #eef2f5; font-family: 'Segoe UI', Tahoma, Arial, sans-serif; padding: 15px; color: #111; min-height: 100vh; }
+
+.app-header { display: flex; align-items: center; gap: 15px; background: linear-gradient(135deg, #1a252f, #2c3e50); color: #fff; padding: 15px 25px; border-radius: 10px; margin-bottom: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); }
+.app-header img { height: 55px; width: 55px; border-radius: 8px; object-fit: cover; }
+.app-header .titles { flex: 1; }
+.app-header h1 { font-size: 20px; letter-spacing: 1px; margin-bottom: 3px; }
+.app-header h1 small { font-size: 13px; opacity: 0.85; font-weight: normal; letter-spacing: 0; }
+.app-header .subtitle { font-size: 12px; opacity: 0.8; }
+
+.card { background: #fff; border-radius: 10px; padding: 18px; margin-bottom: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
+.card h2 { font-size: 15px; color: #2c3e50; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #eef2f5; display: flex; align-items: center; gap: 8px; }
+
+#rawInput { width: 100%; min-height: 220px; padding: 14px; border: 2px solid #ccc; border-radius: 8px; font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; line-height: 1.6; resize: vertical; background: #fafbfc; direction: ltr; text-align: left; }
+#rawInput:focus { outline: none; border-color: #17a2b8; background: #fff; }
+.input-help { font-size: 12px; color: #666; margin-top: 8px; line-height: 1.6; }
+.input-help code { background: #f1f3f5; padding: 2px 6px; border-radius: 4px; font-family: 'Consolas', monospace; color: #d32f2f; }
+
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.btn { padding: 9px 16px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 13px; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; font-family: inherit; }
+.btn:hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.15); }
+.btn:active { transform: translateY(0); }
+.btn-primary { background: #1976d2; color: #fff; }
+.btn-primary:hover { background: #1565c0; }
+.btn-success { background: #28a745; color: #fff; }
+.btn-success:hover { background: #218838; }
+.btn-warning { background: #ffa000; color: #fff; }
+.btn-warning:hover { background: #f57c00; }
+.btn-danger { background: #dc3545; color: #fff; }
+.btn-danger:hover { background: #c82333; }
+.btn-secondary { background: #6c757d; color: #fff; }
+.btn-secondary:hover { background: #5a6268; }
+.btn-info { background: #17a2b8; color: #fff; }
+.btn-info:hover { background: #138496; }
+.btn-purple { background: #6f42c1; color: #fff; }
+.btn-purple:hover { background: #5a32a3; }
+.btn:disabled { background: #ccc !important; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
+.btn-filter-active { background: #28a745 !important; box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.25) !important; }
+
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 15px; }
+.stat-card { background: #fff; border-radius: 10px; padding: 15px; text-align: center; border-right: 4px solid #1976d2; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.stat-card.wastage { border-right-color: #d32f2f; }
+.stat-card.total { border-right-color: #28a745; }
+.stat-card.dates { border-right-color: #ffa000; }
+.stat-card .label { font-size: 11px; color: #666; font-weight: bold; margin-bottom: 6px; }
+.stat-card .value { font-size: 22px; font-weight: 900; color: #1a252f; }
+.stat-card.wastage .value { color: #d32f2f; }
+.stat-card.total .value { color: #28a745; }
+.stat-card.dates .value { font-size: 14px; }
+
+.table-wrapper { background: #fff; border-radius: 10px; overflow: auto; max-height: 70vh; box-shadow: 0 2px 10px rgba(0,0,0,0.06); margin-bottom: 15px; position: relative; }
+.table-header-bar { padding: 12px 16px; background: #f8f9fa; border-bottom: 2px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 20; }
+.table-header-bar h2 { margin: 0; font-size: 15px; color: #2c3e50; }
+.table-header-bar .badge { background: #1976d2; color: #fff; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: bold; }
+
+.data-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; direction: rtl; }
+.data-table th { background: linear-gradient(135deg, #2c3e50, #34495e); color: #fff; padding: 10px 8px; font-weight: 600; text-align: center; border: 1px solid #1a252f; position: sticky; top: 0; z-index: 10; white-space: nowrap; font-size: 12px; }
+.data-table th:first-child { position: sticky; right: 0; z-index: 15; background: linear-gradient(135deg, #1a252f, #2c3e50); text-align: right; min-width: 220px; padding-right: 14px; }
+.data-table th:last-child { background: linear-gradient(135deg, #b71c1c, #d32f2f); }
+.data-table td { padding: 7px 6px; border: 1px solid #e0e0e0; text-align: center; background: #fff; }
+.data-table td:first-child { position: sticky; right: 0; background: #f8f9fa; z-index: 5; text-align: right; font-weight: 500; padding-right: 14px; white-space: nowrap; border-left: 2px solid #ccc; }
+.data-table tbody tr:hover td { background: #f5f5f5; }
+.data-table tbody tr:hover td:first-child { background: #eef2f5; }
+.data-table tbody tr:nth-child(even) td { background: #fafbfc; }
+.data-table tbody tr:nth-child(even) td:first-child { background: #f0f2f5; }
+.data-table tbody tr:nth-child(even):hover td { background: #f5f5f5; }
+
+.data-table .section-row td { background: linear-gradient(90deg, #e3f2fd, #bbdefb) !important; font-weight: bold; text-align: right; color: #0d47a1; letter-spacing: 0.5px; padding: 8px 14px; font-size: 12px; border-top: 2px solid #1976d2; }
+.data-table .section-row td:first-child { background: linear-gradient(90deg, #bbdefb, #90caf9) !important; }
+
+.qty-cell { cursor: pointer; transition: background 0.15s; }
+.qty-cell:hover { outline: 2px solid #1976d2; outline-offset: -2px; }
+.qty-cell.has-qty { background: #c8e6c9 !important; font-weight: 900; color: #1b5e20; font-size: 15px; }
+.qty-cell.has-qty:hover { background: #a5d6a7 !important; }
+.qty-cell.blank { color: #bbb; }
+.qty-cell.wastage-cell.has-qty { background: #ffcdd2 !important; color: #b71c1c; }
+.qty-cell.wastage-cell.has-qty:hover { background: #ef9a9a !important; }
+
+.qty-cell input.inline-edit { width: 100%; border: 2px solid #1976d2; border-radius: 4px; padding: 4px; text-align: center; font-size: 14px; font-weight: bold; outline: none; font-family: inherit; background: #fff; }
+
+.total-col { background: #fff3e0 !important; font-weight: 900; color: #e65100; font-size: 14px; }
+.data-table tbody tr:hover .total-col { background: #ffe0b2 !important; }
+
+.data-table tfoot td { background: #2c3e50 !important; color: #fff; font-weight: 900; padding: 10px 8px; position: sticky; bottom: 0; z-index: 8; border-top: 2px solid #000; }
+.data-table tfoot td:first-child { position: sticky; right: 0; z-index: 12; background: #1a252f !important; text-align: right; padding-right: 14px; }
+.data-table tfoot td.grand { background: #b71c1c !important; color: #fff; font-size: 15px; }
+
+/* Wastage theme (red - merged with returns) */
+.wastage-table th { background: linear-gradient(135deg, #b71c1c, #d32f2f) !important; }
+.wastage-table th:first-child { background: linear-gradient(135deg, #8e0000, #b71c1c) !important; }
+.wastage-table .section-row td { background: linear-gradient(90deg, #ffebee, #ffcdd2) !important; color: #b71c1c !important; border-top-color: #d32f2f !important; }
+.wastage-table .section-row td:first-child { background: linear-gradient(90deg, #ffcdd2, #ef9a9a) !important; }
+
+.empty-state { text-align: center; padding: 60px 20px; color: #999; }
+.empty-state .icon { font-size: 50px; margin-bottom: 15px; opacity: 0.5; }
+.empty-state h3 { font-size: 16px; margin-bottom: 8px; color: #666; }
+.empty-state p { font-size: 13px; line-height: 1.7; }
+
+#toast { position: fixed; bottom: 25px; left: 50%; transform: translateX(-50%) translateY(100px); background: #2c3e50; color: #fff; padding: 12px 25px; border-radius: 8px; font-weight: bold; font-size: 14px; z-index: 10000; opacity: 0; transition: all 0.3s; box-shadow: 0 5px 20px rgba(0,0,0,0.3); }
+#toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+#toast.success { background: #28a745; }
+#toast.error { background: #dc3545; }
+#toast.warning { background: #ffa000; color: #1a252f; }
+
+.saved-indicator { position: fixed; top: 15px; left: 15px; background: #28a745; color: #fff; padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: bold; opacity: 0; transition: opacity 0.3s; z-index: 999; }
+.saved-indicator.show { opacity: 1; }
+
+@media (max-width: 768px) {
+  body { padding: 8px; }
+  .app-header { padding: 10px 15px; gap: 10px; }
+  .app-header img { height: 40px; width: 40px; }
+  .app-header h1 { font-size: 16px; }
+  .card { padding: 12px; }
+  .btn { padding: 8px 12px; font-size: 12px; }
+  .data-table th:first-child, .data-table td:first-child { min-width: 160px; font-size: 12px; }
+  .stat-card .value { font-size: 18px; }
+}
+
+@media print {
+  @page { size: A4 landscape; margin: 8mm; }
+  body { background: #fff; padding: 0; }
+  .no-print { display: none !important; }
+  .app-header { background: #fff; color: #000; border-bottom: 2px solid #000; border-radius: 0; box-shadow: none; padding: 5px 0; margin-bottom: 8px; }
+  .card, .table-wrapper { box-shadow: none; border: 1px solid #000; }
+  .table-wrapper { max-height: none; overflow: visible; page-break-inside: auto; }
+  .data-table thead { display: table-header-group; }
+  .data-table tfoot { display: table-footer-group; }
+  .data-table tr { page-break-inside: avoid; break-inside: avoid; }
+  .data-table .section-row { page-break-after: avoid; break-after: avoid; }
+  .data-table th { background: #333 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .data-table td { background: #fff !important; }
+  .qty-cell.has-qty { background: #c8e6c9 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .wastage-table .qty-cell.has-qty { background: #ffcdd2 !important; }
+  .total-col { background: #fff3e0 !important; }
+  .data-table .section-row td { background: #e3f2fd !important; color: #0d47a1 !important; }
+  .wastage-table .section-row td { background: #ffebee !important; color: #b71c1c !important; }
+  .data-table tfoot td { background: #2c3e50 !important; color: #fff !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .data-table th, .data-table td { position: static !important; }
+  .data-table { font-size: 9.5px; }
+  .data-table td, .data-table th { padding: 3px 4px !important; }
+  .data-table td:first-child { min-width: 180px; }
+  .table-header-bar { position: static !important; padding: 6px 10px; }
+  .table-header-bar h2 { font-size: 12px; }
+  .summary-grid { grid-template-columns: repeat(5, 1fr); gap: 6px; }
+  .stat-card { padding: 8px; }
+  .stat-card .value { font-size: 14px; }
+  .stat-card .label { font-size: 9px; margin-bottom: 2px; }
+  #wastageWrapper { page-break-before: always; }
+}
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+<div id="savedIndicator" class="saved-indicator">✓ محفوظ</div>
+
+<div class="app-header no-print">
+  <img src="https://i.postimg.cc/WbJw6TdV/Orig-LOGO-Square.jpg" alt="Logo" onerror="this.style.display='none'">
+  <div class="titles">
+    <h1>FONDANT CHOCO <small>— تجميع طلبات المستشفيات</small></h1>
+    <div class="subtitle">الصق رسائل الواتساب ← اضغط تحليل ← فلتر/صدّر</div>
+  </div>
+</div>
+
+<div class="card no-print">
+  <h2>📥 الصق رسائل الواتساب</h2>
+  <textarea id="rawInput" placeholder="Date-17-10-2026&#10;Store name - psychology hospital&#10;&#10;SANDWICHES&#10;Hallom krol sandwich -2&#10;...&#10;&#10;Wastage :-&#10;...&#10;&#10;(Returns أو المرتجعات سيتم ضمها تلقائياً للهالك)"></textarea>
+  <div class="input-help">
+    الصيغة: <code>Date-DD-MM-YYYY</code> ثم <code>Store name - اسم المستشفى</code> ثم الأصناف <code>اسم - كمية</code>.<br>
+    <b>الهالك = المرتجعات:</b> يمكنك استخدام <code>Wastage :-</code> أو <code>Returns :-</code> أو <code>هالك :-</code> أو <code>المرتجعات :-</code> — جميعها تُجمَّع في جدول واحد.
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-primary" onclick="parseAndReplace()">🔍 تحليل واستبدال</button>
+    <button class="btn btn-success" onclick="parseAndAdd()">➕ تحليل وإضافة</button>
+    <button class="btn btn-info" onclick="loadSample()">📋 نموذج كامل (كل المستشفيات)</button>
+    <button class="btn btn-secondary" onclick="document.getElementById('rawInput').value=''">🗑️ تفريغ</button>
+  </div>
+</div>
+
+<div class="card no-print">
+  <h2>⚙️ أدوات</h2>
+  <div class="btn-row">
+    <button class="btn btn-info" id="btnToggleFilter" onclick="toggleFilter()" disabled>🔍 إظهار التي فيها رصيد فقط</button>
+    <button class="btn btn-success" onclick="exportExcel()" id="btnExcel" disabled>📊 Excel</button>
+    <button class="btn btn-danger" onclick="exportPDF()" id="btnPDF" disabled>📄 PDF</button>
+    <button class="btn btn-info" onclick="copyAsText()" id="btnCopy" disabled>📋 نسخ نص</button>
+    <button class="btn btn-purple" onclick="window.print()" id="btnPrint" disabled>🖨️ طباعة</button>
+    <button class="btn btn-warning" onclick="clearAllData()">🗑️ مسح الكل</button>
+  </div>
+</div>
+
+<div class="summary-grid" id="summaryGrid" style="display:none;">
+  <div class="stat-card"><div class="label">المستشفيات</div><div class="value" id="statHospitals">0</div></div>
+  <div class="stat-card total"><div class="label">الأصناف المطلوبة</div><div class="value" id="statItems">0</div></div>
+  <div class="stat-card"><div class="label">إجمالي الكمية</div><div class="value" id="statQty">0</div></div>
+  <div class="stat-card wastage"><div class="label">الهالك / المرتجعات</div><div class="value" id="statWastage">0</div></div>
+  <div class="stat-card dates"><div class="label">التواريخ</div><div class="value" id="statDates">—</div></div>
+</div>
+
+<div id="emptyState" class="card">
+  <div class="empty-state">
+    <div class="icon">📋</div>
+    <h3>لا توجد بيانات بعد</h3>
+    <p>الصق رسائل الواتساب ثم اضغط <b>تحليل واستبدال</b>،<br>أو اضغط <b>📋 نموذج كامل</b> لرؤية مثال شامل بكل المستشفيات.</p>
+  </div>
+</div>
+
+<div class="table-wrapper" id="mainWrapper" style="display:none;">
+  <div class="table-header-bar"><h2>🛒 الطلبات الرئيسية</h2><span class="badge" id="mainBadge">0 صنف</span></div>
+  <table class="data-table" id="mainTable"><thead id="mainThead"></thead><tbody id="mainTbody"></tbody><tfoot id="mainTfoot"></tfoot></table>
+</div>
+
+<div class="table-wrapper" id="wastageWrapper" style="display:none;">
+  <div class="table-header-bar"><h2>♻️ الهالك / المرتجعات (Wastage / Returns)</h2><span class="badge" style="background:#d32f2f;" id="wastageBadge">0 صنف</span></div>
+  <table class="data-table wastage-table" id="wastageTable"><thead id="wastageThead"></thead><tbody id="wastageTbody"></tbody><tfoot id="wastageTfoot"></tfoot></table>
+</div>
+
+<script>
+const STORAGE_KEY = 'fondant_hospital_orders_v1';
+const FILTER_KEY = 'fondant_hospital_orders_filter';
+
+// ============================================================
+// Canonical mapping — كل الأسماء تُطابق أصناف index(4).html
+// ============================================================
+const CANONICAL_ITEMS = {
+  // Sandwiches
+  'hallom krol sandwich': 'Halloum Croll Sandwich', 'halloum croll sandwich': 'Halloum Croll Sandwich',
+  'hallom croll sandwich': 'Halloum Croll Sandwich', 'halloum krol sandwich': 'Halloum Croll Sandwich',
+  'hallom krol sandwitch': 'Halloum Croll Sandwich',
+  'turkey krol sandwich': 'Turkey Croll Sandwich', 'turkey croll sandwich': 'Turkey Croll Sandwich',
+  'chiken krol sandwich': 'Chicken Croll Sandwich', 'chicken croll sandwich': 'Chicken Croll Sandwich',
+  'chiken croll sandwich': 'Chicken Croll Sandwich', 'chicken krol sandwich': 'Chicken Croll Sandwich',
+  'mix fries sandwich': 'Mix Fried Sandwich', 'mix fried sandwich': 'Mix Fried Sandwich',
+  'feta cheese': 'Feta Sandwich', 'feta sandwich': 'Feta Sandwich', 'feta': 'Feta Sandwich',
+  'hallom sandwich': 'Halloum Sandwich', 'halloum sandwich': 'Halloum Sandwich',
+  'hallom brown': 'Halloum Brown Sandwich', 'halloum brown': 'Halloum Brown Sandwich',
+  'hallom brown sandwich': 'Halloum Brown Sandwich', 'halloum brown sandwich': 'Halloum Brown Sandwich',
+  'turkey sandwich': 'Turkey Sandwich',
+  'turkey brown': 'Turkish Brown Sandwich With Sesame',
+  'turkey brown sandwich': 'Turkish Brown Sandwich With Sesame',
+  'turkish brown sandwich with sesame': 'Turkish Brown Sandwich With Sesame',
+  'turkish brown sandwich': 'Turkish Brown Sandwich With Sesame',
+  'chicken sandwich': 'Chicken Sandwich', 'chiken sandwich': 'Chicken Sandwich',
+  'chiken brown': 'Brown Chicken Sandwich With Sesame',
+  'chicken brown': 'Brown Chicken Sandwich With Sesame',
+  'chiken brown sandwich': 'Brown Chicken Sandwich With Sesame',
+  'chicken brown sandwich': 'Brown Chicken Sandwich With Sesame',
+  'brown chicken sandwich with sesame': 'Brown Chicken Sandwich With Sesame',
+  'hallum saj': 'Halloum Saj', 'halloum saj': 'Halloum Saj',
+  'chiken saj': 'Chicken Saj', 'chicken saj': 'Chicken Saj',
+  // Leaves
+  'grape leaves lemon': 'Grape Leaves Lemon', 'grape leaves limon': 'Grape Leaves Lemon',
+  'vine leaves': 'Grape Leaves Lemon', 'grape leaves': 'Grape Leaves Lemon',
+  'grape leaves roman': 'Grape Leaves Roman',
+  // Dessert
+  'sweet graham': 'Sweet Graham',
+  'brawanie cups': 'Brownies Cups', 'brownies cups': 'Brownies Cups',
+  'brownie cups': 'Brownies Cups', 'brownue cups': 'Brownies Cups',
+  'mohalabia': 'Mohalabiya', 'mohalabiya': 'Mohalabiya', 'mohalbia': 'Mohalabiya',
+  'strawberry chese': 'Strawberry Cheesecake', 'strawberry cheese': 'Strawberry Cheesecake',
+  'strawberry cheesecake': 'Strawberry Cheesecake', 'strawberry cheese cake': 'Strawberry Cheesecake',
+  'chocolate cheese': 'Chocolate Cheesecake', 'chocolate cheesecake': 'Chocolate Cheesecake',
+  'chocolate cheese cake': 'Chocolate Cheesecake', 'chocolate chese': 'Chocolate Cheesecake',
+  'tiramisu cheese cake': 'Tiramisu Cheesecake', 'tiramisu cheesecake': 'Tiramisu Cheesecake',
+  'tiramisu': 'Tiramisu Cheesecake',
+  'saffron cake': 'Saffron Cake', 'safron cake': 'Saffron Cake',
+  // Chocolates
+  'chocolate box': 'Chocolate Box',
+  'chocolate box fondant vip': 'VIP Chocolate', 'vip chocolate': 'VIP Chocolate',
+  'chocolate box vip': 'VIP Chocolate',
+  'chocolate box kinder': 'Kinder Chocolate', 'kinder chocolate': 'Kinder Chocolate',
+  // Wastage-specific (من رسالة الواتساب الأصلية)
+  'fondant croll': 'Fondant Croll', 'fondant krol': 'Fondant Croll',
+  'fondant sandwiches': 'Fondant Sandwiches', 'fondant sandwich': 'Fondant Sandwiches'
+};
+
+const SECTION_ORDER = {
+  'SANDWICHES': 1,
+  'LEAVES': 2, 'COLD SANDWICHES': 2,
+  'DESSERT': 3, 'DESSERTS': 3,
+  'CHOCOLATES': 4, 'CHOCOLATE': 4,
+  'OTHER': 99,
+  'WASTAGE': 999
+};
+
+let messages = [];
+let showOnlyWithQty = false;
+
+function normalizeKey(name) {
+  return (name || '').toLowerCase().replace(/[-_]/g, ' ').replace(/[^\w\s\u0600-\u06FF]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+function getCanonicalName(name) {
+  const key = normalizeKey(name);
+  if (CANONICAL_ITEMS[key]) return CANONICAL_ITEMS[key];
+  return (name || '').trim().replace(/[A-Za-z]+/g, w => w.charAt(0).toUpperCase() + w.substr(1).toLowerCase());
+}
+function titleCase(str) {
+  return (str || '').trim().replace(/[A-Za-z]+/g, w => w.charAt(0).toUpperCase() + w.substr(1).toLowerCase());
+}
+function hospitalKey(name) { return (name || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+function sectionLabel(sec) {
+  if (sec === 'OTHER') return 'أخرى / Other';
+  if (sec === 'WASTAGE') return 'الهالك / المرتجعات';
+  return sec;
+}
+
+// ============================================================
+// PARSER — Wastage و Returns يتم دمجهم في نفس النوع
+// ============================================================
+function parseMessages(rawText) {
+  const parsed = [];
+  const lines = (rawText || '').split(/\r?\n/);
+  let current = null;
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+
+    if (/^date\s*[-:]/i.test(line)) {
+      if (current) parsed.push(current);
+      current = { date: line.replace(/^date\s*[-:]\s*/i, '').trim(), store: '', items: [], currentType: 'regular', section: '' };
+      continue;
+    }
+    if (!current) continue;
+
+    if (/^store\s*name\s*[-:]/i.test(line)) {
+      current.store = line.replace(/^store\s*name\s*[-:]\s*/i, '').trim();
+      continue;
+    }
+    if (!line) continue;
+
+    // ⚡ Wastage / Returns / هالك / مرتجعات → كلها نفس النوع
+    if (/^(wastage|returns?|هالك|مرتجعات|مرتجع)(\s*[:]?[-]?\s*)$/i.test(line)) {
+      current.currentType = 'wastage';
+      current.section = 'WASTAGE';
+      continue;
+    }
+
+    // Section header — يعيد النوع لـ regular
+    if (/^[A-Z][A-Z\s]+$/.test(line) && line.length < 40 && !/[-_]/.test(line)) {
+      current.currentType = 'regular';
+      current.section = line;
+      continue;
+    }
+
+    // Item line
+    const match = line.match(/^(.*)\s*[-_]\s*(\d+)?\s*$/);
+    if (match) {
+      const name = match[1].trim();
+      const qty = match[2] ? parseInt(match[2]) : 0;
+      if (name) {
+        const type = current.currentType;
+        current.items.push({
+          name, qty,
+          section: type === 'wastage' ? 'WASTAGE' : (current.section || 'OTHER'),
+          type
+        });
+        continue;
+      }
+    }
+    if (/[A-Za-z\u0600-\u06FF]/.test(line) && line.length > 1) {
+      const type = current.currentType;
+      current.items.push({
+        name: line, qty: 0,
+        section: type === 'wastage' ? 'WASTAGE' : (current.section || 'OTHER'),
+        type
+      });
+    }
+  }
+  if (current) parsed.push(current);
+  return parsed.filter(m => m.store && m.items.length > 0);
+}
+
+function mergeMessages(parsed) {
+  const map = new Map();
+  for (const msg of parsed) {
+    const key = hospitalKey(msg.store) + '|' + msg.date;
+    if (!map.has(key)) {
+      map.set(key, { date: msg.date, store: msg.store, items: msg.items.map(it => ({ ...it })) });
+    } else {
+      const existing = map.get(key);
+      for (const item of msg.items) {
+        const ex = existing.items.find(i => normalizeKey(i.name) === normalizeKey(item.name) && i.type === item.type);
+        if (ex) ex.qty += item.qty;
+        else existing.items.push({ ...item });
+      }
+    }
+  }
+  return [...map.values()];
+}
+
+function parseAndReplace() {
+  const raw = document.getElementById('rawInput').value.trim();
+  if (!raw) { showToast('الرجاء لصق رسائل أولاً', 'warning'); return; }
+  const parsed = parseMessages(raw);
+  if (!parsed.length) { showToast('لم يتم التعرف على أي رسالة', 'error'); return; }
+  messages = mergeMessages(parsed);
+  saveToStorage();
+  render();
+  showToast(`تم تحليل ${messages.length} رسالة ✓`, 'success');
+}
+
+function parseAndAdd() {
+  const raw = document.getElementById('rawInput').value.trim();
+  if (!raw) { showToast('الرجاء لصق رسائل أولاً', 'warning'); return; }
+  const parsed = parseMessages(raw);
+  if (!parsed.length) { showToast('لم يتم التعرف على أي رسالة', 'error'); return; }
+  messages = mergeMessages([...messages, ...parsed]);
+  saveToStorage();
+  render();
+  showToast(`تمت الإضافة — ${messages.length} رسالة`, 'success');
+}
+
+// ============================================================
+// Sample — كل الأصناف من index(4).html فقط
+// ============================================================
+function loadSample() {
+  document.getElementById('rawInput').value = `Date-17-10-2026
+Store name - psychology hospital
+
+SANDWICHES
+Hallom krol sandwich -2
+Turkey krol sandwich -1
+Chiken krol sandwich -2
+Mix fries sandwich -3
+Feta cheese -2
+Hallom sandwich -2
+Hallom brown -2
+Turkey sandwich -2
+Turkey brown -1
+Chicken sandwich -2
+Chiken brown -2
+Hallum saj -4
+Chiken saj -4
+
+LEAVES
+Grape leaves lemon -1
+Grape leaves roman -2
+
+DESSERT
+Sweet graham -1
+Brawanie cups -2
+Mohalabia -3
+Strawberry chese -2
+Chocolate cheese -1
+Tiramisu cheese cake -1
+Saffron cake -2
+
+CHOCOLATES
+Chocolate box fondant vip -1
+Chocolate box kinder -2
+Chocolate box -3
+
+Wastage :-
+Mohalabiya -2
+Chocolate box -1
+
+Returns :-
+Hallom sandwich -1
+Turkey sandwich -1
+
+Date-17-10-2026
+Store name - Al-Adan Hospital
+
+SANDWICHES
+Hallom krol sandwich -1
+Chicken sandwich -3
+Hallum saj -2
+
+LEAVES
+Grape leaves lemon -2
+
+DESSERT
+Sweet graham -2
+Tiramisu cheese cake -4
+Saffron cake -2
+
+Wastage :-
+Mohalabiya -1
+
+Date-17-10-2026
+Store name - Al-Jahra Hospital
+
+SANDWICHES
+Turkey sandwich -5
+Feta cheese -3
+Hallom brown -2
+Mix fries sandwich -1
+
+CHOCOLATES
+Chocolate box fondant vip -2
+Chocolate box kinder -1
+Chocolate box -1
+
+Date-17-10-2026
+Store name - Al-Razi Hospital
+
+SANDWICHES
+Turkey sandwich -5
+Feta cheese -3
+Hallom brown -2
+
+DESSERT
+Saffron cake -5
+Chocolate cheese -2
+
+Date-17-10-2026
+Store name - Hya Elhabib Hospital
+
+SANDWICHES
+Hallom sandwich -3
+Chicken sandwich -2
+Hallum saj -1
+
+LEAVES
+Grape leaves lemon -2
+
+DESSERT
+Sweet graham -1
+Brawanie cups -3
+Strawberry chese -1
+
+Date-17-10-2026
+Store name - Hisham Al-Sager Hospital
+
+SANDWICHES
+Chiken krol sandwich -2
+Turkey sandwich -1
+Hallom brown -1
+
+Wastage :-
+Mohalabiya -1
+Grape leaves lemon -2
+
+Date-17-10-2026
+Store name - Hamed Al-Eissa Hospital
+
+DESSERT
+Tiramisu cheese cake -3
+Saffron cake -4
+Chocolate cheese -2
+
+CHOCOLATES
+Chocolate box fondant vip -3
+Chocolate box kinder -2
+
+Date-17-10-2026
+Store name - NBK Hospital
+
+SANDWICHES
+Hallom sandwich -4
+Turkey sandwich -3
+Chicken sandwich -2
+Hallum saj -2
+
+LEAVES
+Grape leaves roman -3
+
+Date-17-10-2026
+Store name - Physiology Hospital
+
+SANDWICHES
+Hallom krol sandwich -1
+Turkey krol sandwich -2
+Chiken brown -1
+
+LEAVES
+Grape leaves lemon -1
+
+Wastage :-
+Mohalabiya -1
+Sweet graham -1
+
+Date-17-10-2026
+Store name - Higher Institute of Energy - HIE
+
+SANDWICHES
+Hallom sandwich -2
+Chicken sandwich -3
+Hallum saj -1
+
+Date-17-10-2026
+Store name - College of Health Sciences - Boys
+
+SANDWICHES
+Turkey sandwich -4
+Feta cheese -2
+Hallom brown -3
+
+LEAVES
+Grape leaves lemon -2
+
+DESSERT
+Sweet graham -3
+Mohalabia -2
+
+Date-17-10-2026
+Store name - College of Technological Studies - Girls
+
+DESSERT
+Brawanie cups -2
+Strawberry chese -3
+Tiramisu cheese cake -2
+Saffron cake -1
+
+CHOCOLATES
+Chocolate box fondant vip -1
+Chocolate box -2
+
+Date-17-10-2026
+Store name - New Al-Razi Hospital
+
+SANDWICHES
+Hallom krol sandwich -3
+Turkey sandwich -2
+Chicken sandwich -1
+Hallum saj -3
+
+Wastage :-
+Mohalabiya -1
+Chocolate box -1
+
+Returns :-
+Hallom krol sandwich -1
+
+Date-17-10-2026
+Store name - Addiction Treatment Center - ATC
+
+SANDWICHES
+Hallom sandwich -3
+Turkey sandwich -2
+
+LEAVES
+Grape leaves lemon -2
+
+Date-17-10-2026
+Store name - Ministry of Health
+
+SANDWICHES
+Turkey sandwich -6
+Chicken sandwich -4
+Feta cheese -3
+Hallom brown -2
+
+DESSERT
+Saffron cake -3
+Chocolate cheese -2
+
+Wastage :-
+Mohalabiya -2
+Sweet graham -1
+
+Date-17-10-2026
+Store name - Al Omooma Hospital
+
+SANDWICHES
+Hallom sandwich -2
+Chiken brown -2
+Hallum saj -2
+
+LEAVES
+Grape leaves lemon -1
+
+DESSERT
+Sweet graham -2
+Brawanie cups -1`;
+  showToast('تم تحميل النموذج — اضغط تحليل واستبدال', 'success');
+}
+
+// ============================================================
+// Aggregate
+// ============================================================
+function buildAggregate() {
+  const hospitals = [];
+  const hospMap = new Map();
+  for (const msg of messages) {
+    const key = hospitalKey(msg.store);
+    if (!hospMap.has(key)) {
+      const h = { key, display: titleCase(msg.store) };
+      hospMap.set(key, h);
+      hospitals.push(h);
+    }
+  }
+  const itemsMap = new Map();
+  for (const msg of messages) {
+    for (const item of msg.items) {
+      const k = normalizeKey(item.name) + '|' + item.type;
+      if (!itemsMap.has(k)) {
+        itemsMap.set(k, {
+          key: k,
+          display: getCanonicalName(item.name),
+          section: item.section || 'OTHER',
+          type: item.type,
+          cells: {}
+        });
+      }
+      const entry = itemsMap.get(k);
+      const hk = hospitalKey(msg.store);
+      entry.cells[hk] = (entry.cells[hk] || 0) + (item.qty || 0);
+    }
+  }
+  const items = [...itemsMap.values()].sort((a, b) => {
+    const sa = SECTION_ORDER[a.section] || 50;
+    const sb = SECTION_ORDER[b.section] || 50;
+    if (sa !== sb) return sa - sb;
+    return a.display.localeCompare(b.display);
+  });
+  return { hospitals, items };
+}
+
+function applyFilter(items) {
+  if (!showOnlyWithQty) return items;
+  return items.filter(it => Object.values(it.cells).some(q => q > 0));
+}
+
+function toggleFilter() {
+  showOnlyWithQty = !showOnlyWithQty;
+  localStorage.setItem(FILTER_KEY, showOnlyWithQty ? '1' : '0');
+  updateFilterButton();
+  render();
+  showToast(showOnlyWithQty ? 'عرض الأصناف التي فيها رصيد فقط' : 'عرض كل الأصناف', 'success');
+}
+
+function updateFilterButton() {
+  const btn = document.getElementById('btnToggleFilter');
+  if (!btn) return;
+  if (showOnlyWithQty) {
+    btn.textContent = '👁️ إظهار الكل';
+    btn.className = 'btn btn-filter-active';
+  } else {
+    btn.textContent = '🔍 إظهار التي فيها رصيد فقط';
+    btn.className = 'btn btn-info';
+  }
+}
+
+// ============================================================
+// Render
+// ============================================================
+function render() {
+  const emptyState = document.getElementById('emptyState');
+  const summaryGrid = document.getElementById('summaryGrid');
+  const mainWrapper = document.getElementById('mainWrapper');
+  const wastageWrapper = document.getElementById('wastageWrapper');
+  const buttons = ['btnExcel', 'btnPDF', 'btnCopy', 'btnPrint', 'btnToggleFilter'];
+
+  if (!messages.length) {
+    emptyState.style.display = 'block';
+    summaryGrid.style.display = 'none';
+    mainWrapper.style.display = 'none';
+    wastageWrapper.style.display = 'none';
+    buttons.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = true; });
+    updateFilterButton();
+    return;
+  }
+
+  emptyState.style.display = 'none';
+  summaryGrid.style.display = 'grid';
+  buttons.forEach(id => { const b = document.getElementById(id); if (b) b.disabled = false; });
+  updateFilterButton();
+
+  const { hospitals, items } = buildAggregate();
+  const regularItems = applyFilter(items.filter(i => i.type === 'regular'));
+  const wastageItems = applyFilter(items.filter(i => i.type === 'wastage'));
+
+  // Summary
+  const allRegular = items.filter(i => i.type === 'regular');
+  const allWastage = items.filter(i => i.type === 'wastage');
+  let totalQty = 0, totalWastage = 0, totalItemsOrdered = 0;
+  allRegular.forEach(it => {
+    let has = false;
+    Object.values(it.cells).forEach(q => { totalQty += q; if (q > 0) has = true; });
+    if (has) totalItemsOrdered++;
+  });
+  allWastage.forEach(it => { Object.values(it.cells).forEach(q => totalWastage += q); });
+  const dates = [...new Set(messages.map(m => m.date))].sort();
+  document.getElementById('statHospitals').textContent = hospitals.length;
+  document.getElementById('statItems').textContent = totalItemsOrdered;
+  document.getElementById('statQty').textContent = totalQty;
+  document.getElementById('statWastage').textContent = totalWastage;
+  document.getElementById('statDates').textContent = dates.length <= 2 ? dates.join(', ') : `${dates[0]} → ${dates[dates.length-1]}`;
+
+  // Main table
+  if (regularItems.length) {
+    mainWrapper.style.display = 'block';
+    document.getElementById('mainBadge').textContent = `${regularItems.length} صنف × ${hospitals.length} مستشفى`;
+    renderTable('mainTable', hospitals, regularItems, 'regular');
+  } else {
+    mainWrapper.style.display = 'none';
+  }
+
+  // Wastage table
+  if (wastageItems.length) {
+    wastageWrapper.style.display = 'block';
+    document.getElementById('wastageBadge').textContent = `${wastageItems.length} صنف × ${hospitals.length} مستشفى`;
+    renderTable('wastageTable', hospitals, wastageItems, 'wastage');
+  } else {
+    wastageWrapper.style.display = 'none';
+  }
+}
+
+function renderTable(tableId, hospitals, items, type) {
+  const table = document.getElementById(tableId);
+  const thead = table.querySelector('thead');
+  const tbody = table.querySelector('tbody');
+  const tfoot = table.querySelector('tfoot');
+  const isWastage = type === 'wastage';
+
+  let hHTML = '<tr><th>الصنف / Item</th>';
+  hospitals.forEach(h => { hHTML += `<th>${h.display}</th>`; });
+  hHTML += '<th>الإجمالي</th></tr>';
+  thead.innerHTML = hHTML;
+
+  let bHTML = '';
+  let currentSection = null;
+  const colTotals = {};
+  hospitals.forEach(h => colTotals[h.key] = 0);
+  let grandTotal = 0;
+
+  items.forEach(item => {
+    if (item.section !== currentSection) {
+      currentSection = item.section;
+      bHTML += `<tr class="section-row"><td colspan="${hospitals.length + 2}">${sectionLabel(currentSection)}</td></tr>`;
+    }
+    let rowTotal = 0;
+    bHTML += `<tr><td>${item.display}</td>`;
+    hospitals.forEach(h => {
+      const qty = item.cells[h.key] || 0;
+      rowTotal += qty;
+      colTotals[h.key] += qty;
+      const classes = ['qty-cell'];
+      if (isWastage) classes.push('wastage-cell');
+      if (qty > 0) classes.push('has-qty'); else classes.push('blank');
+      bHTML += `<td class="${classes.join(' ')}" data-hosp="${h.key}" data-item="${item.key}" data-type="${type}" data-qty="${qty}">${qty > 0 ? qty : ''}</td>`;
+    });
+    bHTML += `<td class="total-col">${rowTotal > 0 ? rowTotal : ''}</td></tr>`;
+    grandTotal += rowTotal;
+  });
+  tbody.innerHTML = bHTML;
+
+  let fHTML = '<tr><td>الإجمالي / Total</td>';
+  hospitals.forEach(h => { fHTML += `<td>${colTotals[h.key] > 0 ? colTotals[h.key] : ''}</td>`; });
+  fHTML += `<td class="grand">${grandTotal}</td></tr>`;
+  tfoot.innerHTML = fHTML;
+}
+
+// Inline editing
+document.addEventListener('click', function(e) {
+  const cell = e.target.closest('.qty-cell');
+  if (!cell) return;
+  if (cell.querySelector('input')) return;
+  if (!cell.dataset.hosp) return;
+  const currentQty = parseInt(cell.dataset.qty) || 0;
+  const type = cell.dataset.type;
+  cell.innerHTML = `<input type="number" min="0" value="${currentQty > 0 ? currentQty : ''}" class="inline-edit">`;
+  const input = cell.querySelector('input');
+  input.focus(); input.select();
+  const commit = () => updateQty(cell.dataset.hosp, cell.dataset.item, parseInt(input.value) || 0, type);
+  input.addEventListener('blur', commit);
+  input.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+    if (ev.key === 'Escape') { input.value = currentQty; input.blur(); }
+  });
+});
+
+function updateQty(hospKey, itemKey, newQty, type) {
+  const normalizedName = itemKey.split('|')[0];
+  const displayName = CANONICAL_ITEMS[normalizedName] || titleCase(normalizedName);
+  let msg = messages.find(m => hospitalKey(m.store) === hospKey);
+  if (!msg) { showToast('لم يتم العثور على المستشفى', 'error'); return; }
+  const item = msg.items.find(i => normalizeKey(i.name) === normalizedName && i.type === type);
+  if (item) {
+    item.qty = newQty;
+  } else if (newQty > 0) {
+    msg.items.push({
+      name: displayName, qty: newQty,
+      section: type === 'wastage' ? 'WASTAGE' : 'OTHER',
+      type
+    });
+  }
+  saveToStorage();
+  render();
+  showToast(`تم التحديث: ${newQty}`, 'success');
+}
+
+// ============================================================
+// Excel — sheetان (main + wastage/returns merged)
+// ============================================================
+function exportExcel() {
+  if (!messages.length) return;
+  const { hospitals, items } = buildAggregate();
+  const regularItems = applyFilter(items.filter(i => i.type === 'regular'));
+  const wastageItems = applyFilter(items.filter(i => i.type === 'wastage'));
+  const wb = XLSX.utils.book_new();
+
+  const buildSheetData = (itemList, title) => {
+    const aoa = [];
+    aoa.push([`FONDANT CHOCO — ${title}`]);
+    aoa.push([`التاريخ: ${new Date().toLocaleString('en-GB')}`]);
+    if (showOnlyWithQty) aoa.push(['(فلتر: الأصناف التي فيها رصيد فقط)']);
+    aoa.push([]);
+    aoa.push(['الصنف / Item', ...hospitals.map(h => h.display), 'Total']);
+    let currentSection = null;
+    itemList.forEach(item => {
+      if (item.section !== currentSection) {
+        currentSection = item.section;
+        aoa.push([`▼ ${sectionLabel(currentSection)}`]);
+      }
+      const row = [item.display];
+      let rowTotal = 0;
+      hospitals.forEach(h => {
+        const q = item.cells[h.key] || 0;
+        row.push(q > 0 ? q : '');
+        rowTotal += q;
+      });
+      row.push(rowTotal > 0 ? rowTotal : '');
+      aoa.push(row);
+    });
+    const totRow = ['الإجمالي / Total'];
+    let grand = 0;
+    hospitals.forEach(h => {
+      let colT = 0;
+      itemList.forEach(it => colT += (it.cells[h.key] || 0));
+      totRow.push(colT > 0 ? colT : '');
+      grand += colT;
+    });
+    totRow.push(grand);
+    aoa.push(totRow);
+    return aoa;
+  };
+
+  if (regularItems.length) {
+    const ws = XLSX.utils.aoa_to_sheet(buildSheetData(regularItems, 'الطلبات الرئيسية'));
+    ws['!cols'] = [{ wch: 32 }, ...hospitals.map(() => ({ wch: 16 })), { wch: 10 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'الطلبات الرئيسية');
+  }
+  if (wastageItems.length) {
+    const ws = XLSX.utils.aoa_to_sheet(buildSheetData(wastageItems, 'الهالك / المرتجعات'));
+    ws['!cols'] = [{ wch: 32 }, ...hospitals.map(() => ({ wch: 16 })), { wch: 10 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'الهالك والمرتجعات');
+  }
+
+  if (!wb.SheetNames.length) { showToast('لا توجد بيانات للتصدير', 'warning'); return; }
+  const filename = `Fondant_Orders_${new Date().toISOString().split('T')[0]}${showOnlyWithQty ? '_filtered' : ''}.xlsx`;
+  XLSX.writeFile(wb, filename);
+  showToast('تم تصدير Excel ✓', 'success');
+}
+
+// ============================================================
+// PDF — صفحة جديدة للهالك/المرتجعات
+// ============================================================
+const MM_TO_PX = 3.7795;
+
+async function exportPDF() {
+  if (!messages.length) return;
+  showToast('جارٍ إنشاء PDF...', 'warning');
+
+  const { hospitals, items } = buildAggregate();
+  const regularItems = applyFilter(items.filter(i => i.type === 'regular'));
+  const wastageItems = applyFilter(items.filter(i => i.type === 'wastage'));
+
+  const rowList = [];
+  let curSec = null;
+  regularItems.forEach(item => {
+    if (item.section !== curSec) {
+      curSec = item.section;
+      rowList.push({ type: 'section', label: sectionLabel(curSec), section: curSec, tableType: 'regular', forceNewPage: false });
+    }
+    rowList.push({ type: 'item', item, tableType: 'regular' });
+  });
+  curSec = null;
+  wastageItems.forEach((item, idx) => {
+    if (item.section !== curSec) {
+      curSec = item.section;
+      rowList.push({ type: 'section', label: sectionLabel(curSec), section: curSec, tableType: 'wastage', forceNewPage: idx === 0 });
+    }
+    rowList.push({ type: 'item', item, tableType: 'wastage' });
+  });
+
+  if (!rowList.length) { showToast('لا توجد بيانات للتصدير', 'warning'); return; }
+
+  const PAGE_W = 297, PAGE_H = 210, MARGIN_MM = 8;
+  const CONTENT_W = PAGE_W - 2 * MARGIN_MM;
+  const CONTENT_H_PX = (PAGE_H - 2 * MARGIN_MM) * MM_TO_PX;
+
+  const probe = document.createElement('div');
+  probe.style.cssText = `position:fixed; left:-10000px; top:0; width:${CONTENT_W}mm; background:#fff; font-family:'Segoe UI',Tahoma,Arial,sans-serif; direction:rtl; font-size:10px; padding:0; box-sizing:border-box;`;
+  probe.innerHTML = buildTableHTML(rowList, rowList, hospitals, { showFooter: true });
+  document.body.appendChild(probe);
+  const dataRows = [...probe.querySelectorAll('tbody tr')];
+  const rowHeights = dataRows.map(r => r.offsetHeight);
+  const theadH = probe.querySelector('thead').offsetHeight;
+  const tfootH = probe.querySelector('tfoot') ? probe.querySelector('tfoot').offsetHeight : 26;
+  document.body.removeChild(probe);
+
+  const PAGE1_HEADER_PX = 100;
+  const OTHER_HEADER_PX = 28;
+  const FOOTER_PX = 18;
+
+  const pages = [];
+  let curPage = [];
+  let curHeight = 0;
+  let curSection = null;
+  let pageNum = 0;
+
+  for (let i = 0; i < rowList.length; i++) {
+    const row = rowList[i];
+
+    if (row.forceNewPage && curPage.length > 0) {
+      pages.push(curPage);
+      curPage = [];
+      curHeight = 0;
+      pageNum++;
+      curSection = null;
+    }
+
+    const rowH = rowHeights[i] || 22;
+    const headerSpace = pageNum === 0 ? PAGE1_HEADER_PX : OTHER_HEADER_PX;
+    const available = CONTENT_H_PX - headerSpace - theadH - tfootH - FOOTER_PX;
+
+    if (row.type === 'section') {
+      const nextRowH = (i + 1 < rowList.length) ? (rowHeights[i + 1] || 22) : 22;
+      if (curHeight + rowH + nextRowH > available && curPage.length > 0) {
+        pages.push(curPage);
+        curPage = [];
+        curHeight = 0;
+        pageNum++;
+      }
+      curPage.push(row);
+      curHeight += rowH;
+      curSection = row;
+    } else {
+      if (curHeight + rowH > available && curPage.length > 0) {
+        pages.push(curPage);
+        curPage = [];
+        curHeight = 0;
+        pageNum++;
+        if (curSection) { curPage.push(curSection); curHeight += 26; }
+      }
+      curPage.push(row);
+      curHeight += rowH;
+    }
+  }
+  if (curPage.length) pages.push(curPage);
+
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF('l', 'mm', 'a4');
+
+  for (let p = 0; p < pages.length; p++) {
+    const html = buildPDFPageHTML(pages[p], rowList, hospitals, {
+      isFirst: p === 0, pageNum: p + 1, totalPages: pages.length
+    });
+    const temp = document.createElement('div');
+    temp.style.cssText = `position:fixed; left:-10000px; top:0; width:${CONTENT_W}mm; background:#fff; font-family:'Segoe UI',Tahoma,Arial,sans-serif; direction:rtl; box-sizing:border-box;`;
+    temp.innerHTML = html;
+    document.body.appendChild(temp);
+
+    const canvas = await html2canvas(temp, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
+    const imgData = canvas.toDataURL('image/jpeg', 0.92);
+    const imgW = CONTENT_W;
+    const imgH = (canvas.height * imgW) / canvas.width;
+
+    if (p > 0) pdf.addPage();
+    pdf.addImage(imgData, 'JPEG', MARGIN_MM, MARGIN_MM, imgW, Math.min(imgH, PAGE_H - 2 * MARGIN_MM));
+    document.body.removeChild(temp);
+  }
+
+  const fname = `Fondant_Orders_${new Date().toISOString().split('T')[0]}${showOnlyWithQty ? '_filtered' : ''}.pdf`;
+  pdf.save(fname);
+  showToast(`تم تصدير PDF (${pages.length} صفحة) ✓`, 'success');
+}
+
+function buildTableHTML(pageRows, allRows, hospitals, opts = {}) {
+  const { showFooter = true } = opts;
+  let html = `<table style="width:100%; border-collapse:collapse; font-size:9.5px; direction:rtl;">`;
+
+  html += `<thead><tr>`;
+  html += `<th style="background:#2c3e50; color:#fff; padding:6px 8px; border:1px solid #1a252f; text-align:right; font-size:9.5px; font-weight:bold;">الصنف / Item</th>`;
+  hospitals.forEach(h => {
+    html += `<th style="background:#2c3e50; color:#fff; padding:6px 4px; border:1px solid #1a252f; text-align:center; font-size:9.5px; font-weight:bold;">${h.display}</th>`;
+  });
+  html += `<th style="background:#b71c1c; color:#fff; padding:6px 4px; border:1px solid #1a252f; text-align:center; font-size:9.5px; font-weight:bold;">Total</th>`;
+  html += `</tr></thead>`;
+
+  html += `<tbody>`;
+  pageRows.forEach(row => {
+    if (row.type === 'section') {
+      let bg = '#e3f2fd', color = '#0d47a1';
+      if (row.tableType === 'wastage') { bg = '#ffebee'; color = '#b71c1c'; }
+      html += `<tr style="background:${bg};"><td colspan="${hospitals.length + 2}" style="padding:5px 10px; font-weight:bold; color:${color}; text-align:right; border:1px solid #ccc; font-size:9.5px;">${row.label}</td></tr>`;
+    } else {
+      const item = row.item;
+      html += `<tr>`;
+      html += `<td style="padding:4px 8px; border:1px solid #ddd; text-align:right; font-weight:500; font-size:9.5px; background:#fff;">${item.display}</td>`;
+      let rowTotal = 0;
+      hospitals.forEach(h => {
+        const q = item.cells[h.key] || 0;
+        rowTotal += q;
+        let bg = '#fff';
+        if (q > 0) {
+          if (row.tableType === 'wastage') bg = '#ffcdd2';
+          else bg = '#c8e6c9';
+        }
+        const fw = q > 0 ? 'bold' : 'normal';
+        html += `<td style="padding:4px 4px; border:1px solid #ddd; text-align:center; background:${bg}; font-weight:${fw}; font-size:9.5px;">${q > 0 ? q : ''}</td>`;
+      });
+      html += `<td style="padding:4px 4px; border:1px solid #ddd; text-align:center; background:#fff3e0; color:#e65100; font-weight:bold; font-size:10px;">${rowTotal > 0 ? rowTotal : ''}</td>`;
+      html += `</tr>`;
+    }
+  });
+  html += `</tbody>`;
+
+  if (showFooter) {
+    html += `<tfoot><tr>`;
+    html += `<td style="background:#2c3e50; color:#fff; padding:6px 8px; border:1px solid #1a252f; text-align:right; font-weight:bold; font-size:10px;">الإجمالي / Total</td>`;
+    hospitals.forEach(h => {
+      let colTotal = 0;
+      pageRows.forEach(r => { if (r.type === 'item') colTotal += (r.item.cells[h.key] || 0); });
+      html += `<td style="background:#2c3e50; color:#fff; padding:6px 4px; border:1px solid #1a252f; text-align:center; font-weight:bold; font-size:10px;">${colTotal > 0 ? colTotal : ''}</td>`;
+    });
+    let grand = 0;
+    pageRows.forEach(r => { if (r.type === 'item') hospitals.forEach(h => grand += (r.item.cells[h.key] || 0)); });
+    html += `<td style="background:#b71c1c; color:#fff; padding:6px 4px; border:1px solid #1a252f; text-align:center; font-weight:bold; font-size:11px;">${grand}</td>`;
+    html += `</tr></tfoot>`;
+  }
+  html += `</table>`;
+  return html;
+}
+
+function buildPDFPageHTML(pageRows, allRows, hospitals, opts) {
+  const { isFirst, pageNum, totalPages } = opts;
+  let html = '';
+  if (isFirst) {
+    html += `<div style="text-align:center; padding-bottom:6px; border-bottom:2px solid #d32f2f; margin-bottom:6px;">
+      <h1 style="font-family:Arial; letter-spacing:2px; margin:0; color:#1a252f; font-size:18px;">FONDANT CHOCO</h1>
+      <div style="font-size:11px; font-weight:bold; color:#d32f2f; margin-top:2px;">تجميع طلبات المستشفيات</div>
+      <div style="font-size:9px; color:#666; margin-top:1px;">${new Date().toLocaleString('en-GB')}${showOnlyWithQty ? ' — (فلتر: رصيد فقط)' : ''}</div>
+    </div>
+    <div style="display:flex; justify-content:space-around; padding:5px; background:#f8f9fa; border-radius:4px; margin-bottom:6px; font-size:9px; font-weight:bold;">
+      <div>المستشفيات: <span style="color:#1976d2;">${hospitals.length}</span></div>
+      <div>الأصناف: <span style="color:#1976d2;">${document.getElementById('statItems').textContent}</span></div>
+      <div>الكمية: <span style="color:#28a745;">${document.getElementById('statQty').textContent}</span></div>
+      <div>الهالك/المرتجعات: <span style="color:#d32f2f;">${document.getElementById('statWastage').textContent}</span></div>
+      <div>التاريخ: <span style="color:#ffa000;">${document.getElementById('statDates').textContent}</span></div>
+    </div>`;
+  } else {
+    html += `<div style="display:flex; justify-content:space-between; align-items:center; padding-bottom:3px; border-bottom:1px solid #ccc; margin-bottom:4px; font-size:9px;">
+      <strong style="color:#d32f2f;">FONDANT CHOCO</strong>
+      <span style="color:#666;">تجميع طلبات المستشفيات — صفحة ${pageNum}</span>
+    </div>`;
+  }
+  html += buildTableHTML(pageRows, allRows, hospitals, { showFooter: true });
+  html += `<div style="text-align:center; margin-top:4px; font-size:8.5px; color:#666;">صفحة ${pageNum} من ${totalPages}</div>`;
+  return html;
+}
+
+// ============================================================
+// Copy as text
+// ============================================================
+function copyAsText() {
+  if (!messages.length) return;
+  const { hospitals, items } = buildAggregate();
+  const regularItems = applyFilter(items.filter(i => i.type === 'regular'));
+  const wastageItems = applyFilter(items.filter(i => i.type === 'wastage'));
+
+  let text = 'FONDANT CHOCO — تجميع طلبات المستشفيات\n';
+  text += `التاريخ: ${new Date().toLocaleString('en-GB')}\n`;
+  if (showOnlyWithQty) text += `(فلتر: الأصناف التي فيها رصيد فقط)\n`;
+  text += '\n';
+
+  const buildTextTable = (itemList, title) => {
+    if (!itemList.length) return '';
+    let t = `▼ ${title}\n`;
+    const headers = ['الصنف', ...hospitals.map(h => h.display), 'الإجمالي'];
+    const colWidths = headers.map((h, i) => {
+      let maxW = h.length;
+      itemList.forEach(item => {
+        if (i === 0) maxW = Math.max(maxW, item.display.length);
+        else if (i === headers.length - 1) {
+          let rowT = 0;
+          hospitals.forEach(hh => rowT += (item.cells[hh.key] || 0));
+          maxW = Math.max(maxW, String(rowT || '').length);
+        } else {
+          maxW = Math.max(maxW, String(item.cells[hospitals[i-1].key] || '').length);
+        }
+      });
+      return maxW + 2;
+    });
+    const pad = (s, w) => String(s).padEnd(w).slice(0, w);
+    t += headers.map((h, i) => pad(h, colWidths[i])).join('| ') + '\n';
+    t += colWidths.map(w => '-'.repeat(w)).join('| ') + '\n';
+    itemList.forEach(item => {
+      const row = [pad(item.display, colWidths[0])];
+      let rowT = 0;
+      hospitals.forEach((h, i) => {
+        const q = item.cells[h.key] || 0;
+        rowT += q;
+        row.push(pad(q > 0 ? q : '', colWidths[i+1]));
+      });
+      row.push(pad(rowT > 0 ? rowT : '', colWidths[colWidths.length-1]));
+      t += row.join('| ') + '\n';
+    });
+    return t + '\n';
+  };
+
+  if (regularItems.length) text += buildTextTable(regularItems, 'الطلبات الرئيسية');
+  if (wastageItems.length) text += buildTextTable(wastageItems, 'الهالك / المرتجعات');
+
+  if (!regularItems.length && !wastageItems.length) {
+    showToast('لا توجد بيانات للنسخ', 'warning'); return;
+  }
+
+  navigator.clipboard.writeText(text).then(() => showToast('تم نسخ الجدول ✓', 'success'))
+    .catch(() => showToast('فشل النسخ', 'error'));
+}
+
+// ============================================================
+// Storage
+// ============================================================
+function saveToStorage() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ messages, ts: Date.now() }));
+    const ind = document.getElementById('savedIndicator');
+    ind.classList.add('show');
+    setTimeout(() => ind.classList.remove('show'), 1200);
+  } catch (e) { console.warn(e); }
+}
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) { const data = JSON.parse(raw); if (data && Array.isArray(data.messages)) messages = data.messages; }
+    if (localStorage.getItem(FILTER_KEY) === '1') showOnlyWithQty = true;
+  } catch (e) { console.warn(e); }
+}
+function clearAllData() {
+  if (!confirm('سيتم حذف جميع البيانات.\nهل تريد المتابعة؟')) return;
+  messages = [];
+  localStorage.removeItem(STORAGE_KEY);
+  render();
+  showToast('تم مسح كل البيانات', 'success');
+}
+
+let toastTimer;
+function showToast(msg, type = 'success') {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = type;
+  clearTimeout(toastTimer);
+  requestAnimationFrame(() => t.classList.add('show'));
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+loadFromStorage();
+updateFilterButton();
+render();
+</script>
+
+</body>
+</html>
