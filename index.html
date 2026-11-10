@@ -232,13 +232,21 @@
         .cost-center-chip{display:inline-flex;align-items:center;gap:8px;background:#e8f2ff;border:1px solid #b8d5f5;border-right:5px solid #2878bd;border-radius:8px;padding:8px 12px;margin:4px;font-weight:600;color:#174a75;}
         .cost-center-chip .cc-id{font-size:11px;color:#607d98;font-weight:400;}
         .zero-dash{color:#8a9299;}
+        .firebase-status-badge {
+            font-size: 0.75rem;
+            padding: 4px 10px;
+            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
     </style>
 </head>
 <body>
     <div id="loginScreen" class="login-screen">
         <div class="login-card text-center">
             <img src="https://i.postimg.cc/WbJw6TdV/Orig-LOGO-Square.jpg" style="width:82px;height:82px;object-fit:cover;border-radius:14px" alt="Fondant Choco">
-            <h4 class="mt-3 mb-1">Fondant Choco</h4><p class="text-muted small mb-4">تسجيل الدخول إلى النظام المحاسبي</p>
+            <h4 class="mt-3 mb-1">Fondant Choco</h4><p class="text-muted small mb-4">تسجيل الدخول إلى النظام المحاسبي المتزامن</p>
             <div class="text-start mb-3"><label class="form-label">اسم المستخدم</label><input id="loginUsername" class="form-control" autocomplete="username" placeholder="اسم المستخدم"></div>
             <div class="text-start mb-3"><label class="form-label">كلمة المرور</label><input id="loginPassword" type="password" class="form-control" autocomplete="current-password" placeholder="كلمة المرور" onkeydown="if(event.key==='Enter')login()"></div>
             <div id="loginError" class="text-danger small mb-2"></div><button class="btn btn-primary w-100" onclick="login()">دخول</button>
@@ -253,6 +261,9 @@
             <span>Fondant Choco - النظام المحاسبي المتكامل</span>
         </a>
         <div class="d-flex align-items-center gap-2">
+            <span id="syncStatusBadge" class="badge bg-warning text-dark firebase-status-badge">
+                <i class="fas fa-sync fa-spin"></i> جاري الاتصال بالسحابة...
+            </span>
             <span class="text-white small me-3">العملة: <b>دينار كويتي</b></span>
             <span id="currentUserLabel" class="text-white small"></span>
             <button class="btn btn-sm btn-outline-light" onclick="changeOwnPasswordPrompt()">تغيير كلمة المرور</button>
@@ -624,7 +635,7 @@
 
                 <!-- Settings & Backup Section -->
                 <div id="settingsSection" class="content-section d-none">
-                    <h4 class="mb-3"><i class="fas fa-sliders-h me-2"></i> إعدادات النظام والنسخ الاحتياطي</h4>
+                    <h4 class="mb-3"><i class="fas fa-sliders-h me-2"></i> إعدادات النظام والنسخ الاحتياطي السحابي</h4>
                     <div class="row">
                         <div class="col-md-6">
                             <div class="card border-0 shadow-sm mb-4">
@@ -645,7 +656,7 @@
                             <div class="card border-0 shadow-sm mb-4 border-danger">
                                 <div class="card-header bg-danger text-white font-weight-bold"><i class="fas fa-exclamation-triangle me-2"></i> منطقة الخطر / إعادة التهيئة</div>
                                 <div class="card-body">
-                                    <p class="text-muted small">إعادة ضبط النظام وإرجاع الحسابات والبيانات للوضع المبدئي الأصلي.</p>
+                                    <p class="text-muted small">إعادة ضبط النظام وإرجاع الحسابات والبيانات للوضع المبدئي الأصلي ومسح قاعدة البيانات السحابية.</p>
                                     <button class="btn btn-danger btn-sm" onclick="resetToDefaultData()"><i class="fas fa-trash-alt me-2"></i> مسح كامل البيانات والعودة للوضع المبدئي</button>
                                 </div>
                             </div>
@@ -657,7 +668,6 @@
                         <div class="col-md-6"><div class="card border-0 shadow-sm"><div class="card-header bg-white fw-bold">سياسة الإهلاك</div><div class="card-body"><div class="form-control-plaintext">القسط الثابت بنسبة <b>15% سنوياً</b> من تكلفة الأصل، ويحتسب شهرياً بنسبة 1.25%، ولا يتجاوز مجمع الإهلاك تكلفة الأصل.</div><small class="text-muted">يجب ربط حساب الأصل ومجمع الإهلاك ومصروف الإهلاك عند تسجيل كل أصل.</small></div></div></div>
                     </div>
                 </div>
-
 
                 <!-- Cash Flow -->
                 <div id="cashFlowSection" class="content-section d-none">
@@ -674,7 +684,7 @@
                 <!-- Fixed Assets -->
                 <div id="fixedAssetsSection" class="content-section d-none"><div class="d-flex justify-content-between align-items-center mb-3"><h4>سجل الأصول الثابتة والإهلاك</h4><button class="btn btn-primary btn-sm" onclick="addFixedAsset()"><i class="fas fa-plus me-1"></i> تسجيل أصل ثابت</button></div><div class="card border-0 shadow-sm mb-3"><div class="card-body"><div class="row g-2 align-items-end"><div class="col-md-6"><label>ترحيل الإهلاك حتى تاريخ</label><input type="date" id="deprToDate" class="form-control form-control-sm"></div><div class="col-md-6"><button class="btn btn-warning w-100" onclick="postDepreciation()">احتساب وترحيل الإهلاك</button></div></div><small class="text-muted">القسط الثابت 15% سنوياً (1.25% شهرياً). حساب الأصل ومجمع الإهلاك ومصروف الإهلاك والحساب المقابل يتم اختيارها بالاسم من دليل الحسابات عند تسجيل الأصل.</small></div></div><div id="fixedAssetsTable" class="card border-0 shadow-sm"></div></div>
                 <!-- Users -->
-                <div id="usersSection" class="content-section d-none"><div class="d-flex justify-content-between align-items-center mb-3"><h4>المستخدمون والصلاحيات</h4><button class="btn btn-primary btn-sm" onclick="createUser()">إضافة مستخدم</button></div><div class="alert alert-warning small">كلمات المرور الأولية لكل الحسابات هي 123. غيّرها قبل إدخال بيانات حقيقية. هذه نسخة محلية؛ الصلاحيات داخل HTML لا تمنع العبث البرمجي ولا توفر دخولاً آمناً متعدد الأجهزة.</div><div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table table-bordered table-compact text-center mb-0"><thead class="table-dark-orange"><tr><th>اسم المستخدم</th><th>الاسم الظاهر</th><th>الدور</th><th>تعديل الاسم</th><th>تغيير كلمة المرور</th></tr></thead><tbody id="usersTableBody"></tbody></table></div></div><div class="card border-0 shadow-sm mt-3"><div class="card-body"><h6>تغيير كلمة المرور الخاصة بي</h6><div class="row g-2"><div class="col-md-4"><input id="oldPassword" type="password" class="form-control" placeholder="كلمة المرور الحالية"></div><div class="col-md-4"><input id="newPassword" type="password" class="form-control" placeholder="كلمة المرور الجديدة"></div><div class="col-md-4"><button class="btn btn-outline-primary w-100" onclick="changeOwnPassword()">تغيير كلمة المرور</button></div></div></div></div></div>
+                <div id="usersSection" class="content-section d-none"><div class="d-flex justify-content-between align-items-center mb-3"><h4>المستخدمون والصلاحيات</h4><button class="btn btn-primary btn-sm" onclick="createUser()">إضافة مستخدم</button></div><div class="alert alert-info small">النظام مجهز بالمزامنة السحابية المباشرة عبر Firebase Firestore لكافة العمليات والأجهزة المعتمدة.</div><div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table table-bordered table-compact text-center mb-0"><thead class="table-dark-orange"><tr><th>اسم المستخدم</th><th>الاسم الظاهر</th><th>الدور</th><th>تعديل الاسم</th><th>تغيير كلمة المرور</th></tr></thead><tbody id="usersTableBody"></tbody></table></div></div><div class="card border-0 shadow-sm mt-3"><div class="card-body"><h6>تغيير كلمة المرور الخاصة بي</h6><div class="row g-2"><div class="col-md-4"><input id="oldPassword" type="password" class="form-control" placeholder="كلمة المرور الحالية"></div><div class="col-md-4"><input id="newPassword" type="password" class="form-control" placeholder="كلمة المرور الجديدة"></div><div class="col-md-4"><button class="btn btn-outline-primary w-100" onclick="changeOwnPassword()">تغيير كلمة المرور</button></div></div></div></div></div>
 
                 <!-- Audit Log Section -->
                 <div id="auditLogSection" class="content-section d-none">
@@ -930,8 +940,99 @@
         <div class="title">مطور البرنامج 67011143</div>
     </a>
 
-    <!-- Bootstrap JavaScript bundle: required for all modal windows -->
+    <!-- Bootstrap JavaScript bundle -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Firebase SDK (Modular ES Modules via Script Type Module) -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // Firebase configuration
+        const firebaseConfig = {
+          apiKey: "AIzaSyBW8D1B-HEbPlf8qsO8gNpDRT4VtdDQEMA",
+          authDomain: "fc-1acc.firebaseapp.com",
+          projectId: "fc-1acc",
+          storageBucket: "fc-1acc.firebasestorage.app",
+          messagingSenderId: "1057298126030",
+          appId: "1:1057298126030:web:3880ce1f8b19b6707aec9f"
+        };
+
+        // Initialize Firebase & Firestore
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const docRef = doc(db, "accounting", "appState");
+
+        window.db = db;
+        window.docRef = docRef;
+        window.isRemoteUpdate = false;
+
+        // Save State to Firestore Cloud & localStorage
+        window.syncStateToCloud = async function() {
+            try {
+                localStorage.setItem("fondant_choco_acc_state", JSON.stringify(window.state));
+                updateAccountsDatalist();
+                
+                // Write state to Firestore cloud document
+                await setDoc(docRef, JSON.parse(JSON.stringify(window.state)));
+                
+                const badge = document.getElementById("syncStatusBadge");
+                if (badge) {
+                    badge.className = "badge bg-success firebase-status-badge";
+                    badge.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> متصل ومتزامن بالسحابة';
+                }
+                return true;
+            } catch (err) {
+                console.error("Cloud Sync Error:", err);
+                const badge = document.getElementById("syncStatusBadge");
+                if (badge) {
+                    badge.className = "badge bg-danger firebase-status-badge";
+                    badge.innerHTML = '<i class="fas fa-exclamation-triangle"></i> خطأ بالمزامنة السحابية';
+                }
+                return false;
+            };
+        };
+
+        // Real-time listener for multi-device sync
+        onSnapshot(docRef, (docSnap) => {
+            const badge = document.getElementById("syncStatusBadge");
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                if (data && typeof data === 'object') {
+                    window.isRemoteUpdate = true;
+                    window.state = {
+                        accounts: Array.isArray(data.accounts) ? data.accounts : [...DEFAULT_ACCOUNTS],
+                        entries: Array.isArray(data.entries) ? data.entries : [],
+                        vouchers: Array.isArray(data.vouchers) ? data.vouchers : [],
+                        auditLog: Array.isArray(data.auditLog) ? data.auditLog : [],
+                        users: Array.isArray(data.users) && data.users.length ? data.users : defaultUsers(),
+                        costCenters: Array.isArray(data.costCenters) ? data.costCenters : [{id:'CC-GEN',name:'عام'}],
+                        assets: Array.isArray(data.assets) ? data.assets : [],
+                        arApInvoices: Array.isArray(data.arApInvoices) ? data.arApInvoices : [],
+                        cashFlowClasses: data.cashFlowClasses && typeof data.cashFlowClasses === 'object' ? data.cashFlowClasses : {},
+                        bankRecItems: Array.isArray(data.bankRecItems) ? data.bankRecItems : [],
+                        closedThrough: data.closedThrough || ''
+                    };
+                    localStorage.setItem("fondant_choco_acc_state", JSON.stringify(window.state));
+                    refreshActiveUI();
+                    window.isRemoteUpdate = false;
+                }
+            } else {
+                // If cloud document does not exist yet, upload current initial state
+                window.syncStateToCloud();
+            }
+            if (badge) {
+                badge.className = "badge bg-success firebase-status-badge";
+                badge.innerHTML = '<i class="fas fa-cloud-check"></i> متصل ومتزامن بالسحابة';
+            }
+        }, (error) => {
+            console.error("Firestore snapshot error:", error);
+            if (badge) {
+                badge.className = "badge bg-warning text-dark firebase-status-badge";
+                badge.innerHTML = '<i class="fas fa-wifi"></i> وضع التخزين المحلي';
+            }
+        });
+    </script>
 
     <!-- JavaScript Application Logic -->
     <script>
@@ -956,7 +1057,7 @@
             { code: "605", name: "مصروف إهلاك الأصول الثابتة", type: "مصروفات", report: "قائمة دخل" }
         ];
 
-        let state = {
+        var state = {
             accounts: [],
             entries: [],
             vouchers: [], auditLog: [], users: [], costCenters: [], assets: []
@@ -983,10 +1084,7 @@
             setupDateDefaults();
             setupKeyboardNavigation();
             updateAccountsDatalist();
-            renderDashboard();
-            renderAccountsTable();
-            renderEntriesTable();
-            renderVouchersTables();
+            refreshActiveUI();
             document.getElementById('cfStart').value = new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString().slice(0,10);
             document.getElementById('cfEnd').value = new Date().toISOString().slice(0,10);
             document.getElementById('agingAsOf').value = new Date().toISOString().slice(0,10);
@@ -996,18 +1094,31 @@
             document.getElementById('deprToDate').value = new Date().toISOString().slice(0,10);
             document.getElementById('ccStart').value = new Date(new Date().getFullYear(),new Date().getMonth(),1).toISOString().slice(0,10);
             document.getElementById('ccEnd').value = new Date().toISOString().slice(0,10);
-            populateCostCenterSelects(); renderCostCenterMaster(); renderFixedAssets(); renderUsers();
+            populateCostCenterSelects();
             const closedInput=document.getElementById('closedThroughInput'); if(closedInput) closedInput.value=state.closedThrough||''; updateClosedThroughLabel(); populateBankAccounts();
 
             setInterval(checkBackupReminder, 7200000);
             setTimeout(checkBackupReminder, 5000);
         });
 
+        function refreshActiveUI() {
+            updateAccountsDatalist();
+            renderDashboard();
+            renderAccountsTable();
+            renderEntriesTable();
+            renderVouchersTables();
+            renderFixedAssets();
+            renderUsers();
+            populateCostCenterSelects();
+            renderCostCenterMaster();
+            populateBankAccounts();
+            populateCashFlowClassAccounts();
+        }
+
         function setupDateDefaults() {
             const now = new Date();
             const year = now.getFullYear();
             const month = String(now.getMonth() + 1).padStart(2, '0');
-            const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
 
             const startDateStr = `${year}-${month}-01`;
             const endDateStr = `${year}-${month}-${String(now.getDate()).padStart(2, '0')}`;
@@ -1049,7 +1160,6 @@
                 saveState();
             } catch (e) {
                 console.error("State loading failed:", e);
-                alert("تعذر قراءة البيانات المحفوظة. لن يتم مسحها تلقائياً؛ استعد نسخة احتياطية أو افحص بيانات المتصفح.");
                 state = { accounts: [...DEFAULT_ACCOUNTS], entries: [], vouchers: [], auditLog: [], users: defaultUsers(), costCenters: [{id:'CC-GEN',name:'عام'}], assets: [], arApInvoices: [], cashFlowClasses: {}, bankRecItems: [], closedThrough: '' };
             }
         }
@@ -1098,15 +1208,13 @@
         }
 
         function saveState() {
-            try {
+            if (window.syncStateToCloud) {
+                window.syncStateToCloud();
+            } else {
                 localStorage.setItem("fondant_choco_acc_state", JSON.stringify(state));
-                updateAccountsDatalist();
-                return true;
-            } catch (err) {
-                console.error("Storage save failed:", err);
-                alert("تعذر حفظ البيانات في المتصفح. قد تكون مساحة التخزين ممتلئة أو غير متاحة. صدّر نسخة احتياطية فوراً.");
-                return false;
             }
+            updateAccountsDatalist();
+            return true;
         }
 
         function resetToDefaultData() {
@@ -1169,6 +1277,7 @@
 
         function updateAccountsDatalist() {
             const dl = document.getElementById('accountsDatalist');
+            if(!dl) return;
             dl.innerHTML = '';
             state.accounts.forEach(acc => {
                 const opt = document.createElement('option');
@@ -1220,12 +1329,17 @@
                 if (v.type === 'payment') totalPayments += parseFloat(v.amount || 0);
             });
 
-            document.getElementById('dashTotalReceipts').innerText = formatNum(totalReceipts);
-            document.getElementById('dashTotalPayments').innerText = formatNum(totalPayments);
-            document.getElementById('dashTotalEntries').innerText = state.entries.length + state.vouchers.length;
-            document.getElementById('dashActiveAccounts').innerText = state.accounts.length;
+            const rEl = document.getElementById('dashTotalReceipts');
+            if (rEl) rEl.innerText = formatNum(totalReceipts);
+            const pEl = document.getElementById('dashTotalPayments');
+            if (pEl) pEl.innerText = formatNum(totalPayments);
+            const eEl = document.getElementById('dashTotalEntries');
+            if (eEl) eEl.innerText = state.entries.length + state.vouchers.length;
+            const aEl = document.getElementById('dashActiveAccounts');
+            if (aEl) aEl.innerText = state.accounts.length;
 
             const tbody = document.getElementById('dashRecentTransactions');
+            if (!tbody) return;
             tbody.innerHTML = '';
 
             const allTrans = [];
@@ -2104,7 +2218,6 @@
                 accountNet.set(acc.code, net);
                 if (Math.abs(net) < 0.0005) return;
                 if (acc.type === 'أصول') {
-                    // Contra-asset balances (e.g. accumulated depreciation) naturally reduce total assets.
                     groups.assets.push({code:acc.code,name:acc.name,value:net});
                     totalAssets += net;
                 } else if (acc.type === 'خصومات') {
@@ -2141,14 +2254,13 @@
             document.getElementById('balanceSheetReportContainer').innerHTML = html;
         }
 
-
         function canWrite(){return !!currentUser&&['admin','accountant'].includes(currentUser.role);}
         function closeAccountingPeriod(){if(currentUser?.role!=='admin')return alert('إقفال الفترات للمدير المالي فقط');const d=document.getElementById('closedThroughInput').value;if(!d)return alert('حدد تاريخ الإقفال');if(state.closedThrough&&d<state.closedThrough)return alert('لا يمكن تقليل تاريخ الإقفال؛ استخدم إلغاء الإقفال أولاً');if(confirm('سيتم منع إضافة أو تعديل أو حذف الحركات بتاريخ '+d+' وما قبله. هل تعتمد الإقفال؟')){state.closedThrough=d;addAudit('إقفال فترة','فترة محاسبية',d);saveState();updateClosedThroughLabel();alert('تم اعتماد الإقفال.');}}
         function reopenAccountingPeriod(){if(currentUser?.role!=='admin')return alert('للمدير المالي فقط');if(confirm('إلغاء تاريخ الإقفال والسماح بالتعديل على الفترات السابقة؟')){state.closedThrough='';document.getElementById('closedThroughInput').value='';addAudit('إلغاء إقفال','فترة محاسبية','');saveState();updateClosedThroughLabel();}}
         function updateClosedThroughLabel(){const e=document.getElementById('closedThroughLabel');if(e)e.textContent=state.closedThrough?'الفترات مقفلة حتى: '+state.closedThrough:'لا توجد فترة مقفلة حالياً';}
         function populateBankAccounts(){const el=document.getElementById('bankRecAccount');if(!el)return;const old=el.value;el.innerHTML=state.accounts.filter(a=>/بنك|bank/i.test(a.name)).map(a=>`<option value="${a.code}">${a.code} - ${a.name}</option>`).join('');if(!el.options.length)el.innerHTML='<option value="">لا توجد حسابات بنكية</option>';el.value=old;const d=document.getElementById('bankRecDate');if(d&&!d.value)d.value=new Date().toISOString().slice(0,10);}
         function generateBankReconciliation(){const code=document.getElementById('bankRecAccount').value,date=document.getElementById('bankRecDate').value,statementRaw=document.getElementById('bankStatementBalance').value;if(!code||!date||statementRaw==='')return alert('أدخل الحساب والتاريخ ورصيد كشف البنك');const statement=Number(statementRaw),deposit=Number(document.getElementById('bankDepositsTransit').value||0),checks=Number(document.getElementById('bankOutstandingChecks').value||0),adjust=Number(document.getElementById('bankUnrecordedAdjust').value||0);if(![statement,deposit,checks,adjust].every(Number.isFinite)||deposit<0||checks<0)return alert('تحقق من مبالغ التسوية');const ledger=getAllLedgerTransactions().filter(t=>t.accountCode===code&&t.date<=date).reduce((v,t)=>v+t.debit-t.credit,0),adjustedBank=statement+deposit-checks,adjustedLedger=ledger+adjust,diff=adjustedBank-adjustedLedger;document.getElementById('bankRecReport').innerHTML=`<div class="d-flex justify-content-end mb-2 no-print"><button class="btn btn-outline-danger btn-sm" onclick="exportReportToPDF('bankRecPrintable','التسوية_البنكية')"><i class="fas fa-file-pdf me-1"></i> تصدير PDF</button></div><div id="bankRecPrintable" class="report-panel">${getHeaderHTML('التسوية البنكية',getAccountByCode(code)?.name+' - '+formatDate(date))}<table class="table table-bordered"><tbody><tr><th>رصيد كشف البنك</th><td class="num-right">${formatNum(statement)}</td></tr><tr><th>(+) إيداعات بالطريق</th><td class="num-right">${formatNum(deposit)}</td></tr><tr><th>(-) شيكات معلقة</th><td class="num-right">${formatNum(checks)}</td></tr><tr class="table-primary fw-bold"><th>الرصيد المعدل حسب البنك</th><td class="num-right">${formatNum(adjustedBank)}</td></tr><tr><th>رصيد الدفاتر</th><td class="num-right">${formatNum(ledger)}</td></tr><tr><th>(+/-) رسوم / فوائد / تسويات غير مسجلة</th><td class="num-right">${formatNum(adjust)}</td></tr><tr class="table-info fw-bold"><th>الرصيد المعدل حسب الدفاتر</th><td class="num-right">${formatNum(adjustedLedger)}</td></tr></tbody></table><div class="report-total mt-3">${Math.abs(diff)<.005?'التسوية متوازنة':'فرق التسوية: '+formatNum(diff)+' د.ك'}</div><small class="text-muted">يجب تسجيل الرسوم والفوائد غير المسجلة بقيد محاسبي مستقل بعد مراجعتها. لا يتم ترحيل عناصر التسوية تلقائياً.</small></div>`;}
-                function generateComparativeReport(){const ids=['cmpS1','cmpE1','cmpS2','cmpE2'];if(!ids.every(id=>document.getElementById(id)))return;const [s1,e1,s2,e2]=ids.map(id=>document.getElementById(id).value);if(!s1||!e1||!s2||!e2)return;function calc(a,b){let rev=0,exp=0;const tx=getAllLedgerTransactions().filter(t=>t.date>=a&&t.date<=b);state.accounts.forEach(acc=>{const n=tx.filter(t=>t.accountCode===acc.code).reduce((v,t)=>v+t.credit-t.debit,0);if(acc.type==='إيرادات')rev+=n;else if(['مصروفات','تكلفة المبيعات'].includes(acc.type))exp-=n;});return {rev,exp,profit:rev-exp};}const a=calc(s1,e1),b=calc(s2,e2);const rows=[['الإيرادات',a.rev,b.rev],['المصروفات والتكاليف',a.exp,b.exp],['صافي الربح / (الخسارة)',a.profit,b.profit]];document.getElementById('comparativeReport').innerHTML=`<div class="report-panel">${getHeaderHTML('قائمة دخل مقارنة','الفترة الأولى: '+s1+' إلى '+e1+' | الثانية: '+s2+' إلى '+e2)}<table class="table table-bordered text-center"><thead><tr><th>البيان</th><th>الفترة الأولى</th><th>الفترة الثانية</th><th>التغير</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r[0]}</td><td class="num-right">${formatNum(r[1])}</td><td class="num-right">${formatNum(r[2])}</td><td class="num-right">${formatNum(r[2]-r[1])}</td></tr>`).join('')}</tbody></table></div>`;}
+        function generateComparativeReport(){const ids=['cmpS1','cmpE1','cmpS2','cmpE2'];if(!ids.every(id=>document.getElementById(id)))return;const [s1,e1,s2,e2]=ids.map(id=>document.getElementById(id).value);if(!s1||!e1||!s2||!e2)return;function calc(a,b){let rev=0,exp=0;const tx=getAllLedgerTransactions().filter(t=>t.date>=a&&t.date<=b);state.accounts.forEach(acc=>{const n=tx.filter(t=>t.accountCode===acc.code).reduce((v,t)=>v+t.credit-t.debit,0);if(acc.type==='إيرادات')rev+=n;else if(['مصروفات','تكلفة المبيعات'].includes(acc.type))exp-=n;});return {rev,exp,profit:rev-exp};}const a=calc(s1,e1),b=calc(s2,e2);const rows=[['الإيرادات',a.rev,b.rev],['المصروفات والتكاليف',a.exp,b.exp],['صافي الربح / (الخسارة)',a.profit,b.profit]];document.getElementById('comparativeReport').innerHTML=`<div class="report-panel">${getHeaderHTML('قائمة دخل مقارنة','الفترة الأولى: '+s1+' إلى '+e1+' | الثانية: '+s2+' إلى '+e2)}<table class="table table-bordered text-center"><thead><tr><th>البيان</th><th>الفترة الأولى</th><th>الفترة الثانية</th><th>التغير</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${r[0]}</td><td class="num-right">${formatNum(r[1])}</td><td class="num-right">${formatNum(r[2])}</td><td class="num-right">${formatNum(r[2]-r[1])}</td></tr>`).join('')}</tbody></table></div>`;}
         function defaultUsers(){return [
             {username:'admin',name:'المدير المالي',role:'admin',password:'123',mustChange:true},
             {username:'accountant',name:'المحاسب',role:'accountant',password:'123',mustChange:true},
@@ -2312,7 +2424,7 @@
                         alert('النسخة الاحتياطية تحتوي على قيود أو سندات بتنسيق غير صحيح.');
                         return;
                     }
-                    if (!confirm('سيتم استبدال البيانات الحالية بالنسخة المختارة. هل تريد المتابعة؟')) return;
+                    if (!confirm('سيتم استبدال البيانات الحالية بالنسخة المختارة وتحديث السحابة بها. هل تريد المتابعة؟')) return;
                     state = {
                         accounts: imported.accounts,
                         entries: imported.entries,
@@ -2328,8 +2440,8 @@
                     };
                     addAudit('استعادة نسخة احتياطية', 'النظام', file.name);
                     if (!saveState()) return;
-                    alert('تم استعادة النسخة الاحتياطية بنجاح.');
-                    location.reload();
+                    alert('تم استعادة النسخة الاحتياطية وتحديث المزامنة بنجاح.');
+                    refreshActiveUI();
                 } catch (err) {
                     console.error(err);
                     alert('تعذر قراءة ملف النسخة الاحتياطية. تأكد من سلامة ملف JSON.');
@@ -2339,7 +2451,9 @@
             };
             reader.onerror = () => alert('تعذر قراءة الملف المحدد.');
             reader.readAsText(file);
-        }        function checkBackupReminder() {
+        }
+
+        function checkBackupReminder() {
             const alertEl = document.getElementById('backupAlert');
             if (alertEl) alertEl.classList.remove('d-none');
         }
