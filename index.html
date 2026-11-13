@@ -626,7 +626,7 @@
                 <div id="chartOfAccountsSection" class="content-section d-none">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h4><i class="fas fa-sitemap me-2"></i> دليل / شجرة الحسابات</h4>
-                        <button class="btn btn-sm btn-primary" onclick="openAccountModal()"><i class="fas fa-plus me-1"></i> إضافة حساب جديد</button>
+                        <div class="d-flex gap-2 flex-wrap"><button class="btn btn-sm btn-outline-primary" onclick="createAccountGroup()"><i class="fas fa-folder-plus me-1"></i> إضافة مجموعة رئيسية</button><button class="btn btn-sm btn-primary" onclick="openAccountModal()"><i class="fas fa-plus me-1"></i> إضافة حساب جديد</button></div>
                     </div>
                     <div class="card border-0 shadow-sm">
                         <div class="card-body p-2">
@@ -1038,8 +1038,12 @@
                     <form id="accountForm">
                         <input type="hidden" id="accEditCode">
                         <div class="mb-2">
-                            <label class="form-label small mb-1">رمز الحساب (يُقترح تلقائياً حسب النوع الرئيسي)</label>
-                            <input type="text" id="accCode" class="form-control form-control-sm nav-navigable" required>
+                            <label class="form-label small mb-1">المجموعة الرئيسية</label>
+                            <div class="input-group input-group-sm"><select id="accGroupCode" class="form-select nav-navigable" onchange="onAccountGroupChanged()"></select><button type="button" class="btn btn-outline-primary" onclick="createAccountGroup()" title="إنشاء مجموعة جديدة"><i class="fas fa-folder-plus"></i></button></div>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small mb-1">رمز الحساب الفرعي (تلقائي)</label>
+                            <input type="text" id="accCode" class="form-control form-control-sm nav-navigable" readonly required>
                         </div>
                         <div class="mb-2">
                             <label class="form-label small mb-1">اسم الحساب</label>
@@ -1047,7 +1051,7 @@
                         </div>
                         <div class="mb-2">
                             <label class="form-label small mb-1">النوع الرئيسي</label>
-                            <select id="accType" class="form-select form-select-sm nav-navigable" onchange="suggestNextAccountCode();suggestDefaultBalanceGroup()" required>
+                            <select id="accType" class="form-select form-select-sm nav-navigable" onchange="filterAccountGroupsByType()" required>
                                 <option value="أصول">أصول</option>
                                 <option value="خصومات">خصومات</option>
                                 <option value="حقوق ملكية">حقوق ملكية</option>
@@ -1359,6 +1363,7 @@
             }
             window.firestoreUnsubscribe = docRef.onSnapshot(async (docSnap) => {
               try {
+                let groupedMigrationChanged = false;
                 if (docSnap.exists) {
                   const data = docSnap.data() || {};
                   window.isRemoteUpdate = true;
@@ -1366,6 +1371,7 @@
                     ...window.state,
                     ...data,
                     accounts: Array.isArray(data.accounts) && data.accounts.length ? data.accounts : [...DEFAULT_ACCOUNTS],
+                    accountGroups: Array.isArray(data.accountGroups) && data.accountGroups.length ? data.accountGroups : [...DEFAULT_ACCOUNT_GROUPS],
                     entries: Array.isArray(data.entries) ? data.entries : [],
                     vouchers: Array.isArray(data.vouchers) ? data.vouchers : [],
                     auditLog: Array.isArray(data.auditLog) ? data.auditLog : [],
@@ -1378,6 +1384,7 @@
                     closedThrough: data.closedThrough || ''
                   };
                   if (typeof repairAssetPostingLinks === 'function') repairAssetPostingLinks();
+                  groupedMigrationChanged=typeof migrateAccountsToGroupedCodes==='function' ? migrateAccountsToGroupedCodes(window.state) : false;
                   try { localStorage.setItem('fondant_choco_acc_state', JSON.stringify(window.state)); window.localCacheFound = true; } catch (e) { console.warn(e); }
                   window.isRemoteUpdate = false;
                 } else {
@@ -1394,6 +1401,7 @@
                 if (typeof refreshActiveUI === 'function') refreshActiveUI();
                 if (typeof window.restoreSessionAfterRemoteLoad === 'function') window.restoreSessionAfterRemoteLoad();
                 if (typeof window.updateLoginAvailability === 'function') window.updateLoginAvailability();
+                if(groupedMigrationChanged&&window.syncStateToCloud){const migrationSaved=await window.syncStateToCloud(true);if(!migrationSaved)throw(window.lastFirebaseSyncError||new Error('تعذر حفظ ترحيل دليل الحسابات في Firestore.'));}
               } catch (err) {
                 window.isRemoteUpdate = false;
                 markFailure(err);
@@ -1437,40 +1445,357 @@
 
     <!-- JavaScript Application Logic -->
     <script>
+        const DEFAULT_ACCOUNT_GROUPS = [
+    {
+        "code": "000-001",
+        "name": "الصندوق والعهد النقدية",
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "cash"
+    },
+    {
+        "code": "000-002",
+        "name": "البنوك",
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "cash"
+    },
+    {
+        "code": "000-003",
+        "name": "العملاء والمدينون",
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "receivables"
+    },
+    {
+        "code": "000-004",
+        "name": "المخزون والمواد الخام",
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "inventory"
+    },
+    {
+        "code": "000-005",
+        "name": "الأصول الثابتة",
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "fixed_assets"
+    },
+    {
+        "code": "000-006",
+        "name": "مجمع إهلاك الأصول الثابتة",
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "accumulated_depreciation"
+    },
+    {
+        "code": "000-007",
+        "name": "الأصول غير الملموسة",
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "fixed_assets"
+    },
+    {
+        "code": "000-008",
+        "name": "الدائنون والموردون",
+        "type": "خصومات",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "payables"
+    },
+    {
+        "code": "000-009",
+        "name": "المصروفات والالتزامات المستحقة",
+        "type": "خصومات",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "other_current_liabilities"
+    },
+    {
+        "code": "000-010",
+        "name": "حقوق الملكية وجاري الشركاء",
+        "type": "حقوق ملكية",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "retained_earnings"
+    },
+    {
+        "code": "000-011",
+        "name": "الإيرادات",
+        "type": "إيرادات",
+        "report": "قائمة دخل",
+        "balanceGroup": "unclassified"
+    },
+    {
+        "code": "000-012",
+        "name": "تكلفة المبيعات",
+        "type": "تكلفة المبيعات",
+        "report": "حساب متاجرة",
+        "balanceGroup": "unclassified"
+    },
+    {
+        "code": "000-013",
+        "name": "المصروفات التشغيلية والإدارية",
+        "type": "مصروفات",
+        "report": "قائمة دخل",
+        "balanceGroup": "unclassified"
+    },
+    {
+        "code": "000-014",
+        "name": "الأصول الأخرى والمدفوعات المقدمة",
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "other_assets"
+    },
+    {
+        "code": "000-015",
+        "name": "الالتزامات طويلة الأجل",
+        "type": "خصومات",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "long_term_liabilities"
+    }
+];
+
         const DEFAULT_ACCOUNTS = [
-            { code: "101", name: "النقد والنقد المعادل - الصندوق", type: "أصول", report: "ميزانية عمومية" },
-            { code: "102", name: "بنك الكويت الوطني", type: "أصول", report: "ميزانية عمومية" },
-            { code: "103", name: "مدينون وأرصدة مدينة أخرى", type: "أصول", report: "ميزانية عمومية" },
-            { code: "104", name: "دفعات مقدمة لشراء حقوق استغلال محلات", type: "أصول", report: "ميزانية عمومية" },
-            { code: "105", name: "بضاعة", type: "أصول", report: "حساب متاجرة" },
-            { code: "106", name: "مدينو أطراف ذات صلة", type: "أصول", report: "ميزانية عمومية" },
-            { code: "107", name: "أعمال تحت التنفيذ", type: "أصول", report: "ميزانية عمومية" },
-            { code: "108", name: "الأصول الثابتة", type: "أصول", report: "ميزانية عمومية" },
-            { code: "109", name: "حق استغلال محلات تجارية", type: "أصول", report: "ميزانية عمومية" },
-            { code: "110", name: "شهرة (شركة مطعم الواجهة)", type: "أصول", report: "ميزانية عمومية" },
-            { code: "111", name: "أصول غير ملموسة", type: "أصول", report: "ميزانية عمومية" },
-            { code: "112", name: "مجمع إهلاك الأصول الثابتة", type: "أصول", report: "ميزانية عمومية" },
-            { code: "201", name: "دائنون", type: "خصومات", report: "ميزانية عمومية" },
-            { code: "202", name: "أرصدة دائنة أخرى", type: "خصومات", report: "ميزانية عمومية" },
-            { code: "203", name: "دائنون أطراف ذات صلة", type: "خصومات", report: "ميزانية عمومية" },
-            { code: "204", name: "مخصص نهاية الخدمة", type: "خصومات", report: "ميزانية عمومية" },
-            { code: "301", name: "رأس المال", type: "حقوق ملكية", report: "ميزانية عمومية" },
-            { code: "302", name: "احتياطي قانوني", type: "حقوق ملكية", report: "ميزانية عمومية" },
-            { code: "303", name: "احتياطي عام", type: "حقوق ملكية", report: "ميزانية عمومية" },
-            { code: "304", name: "الأرباح المرحلة", type: "حقوق ملكية", report: "ميزانية عمومية" },
-            { code: "305", name: "جاري الشركاء", type: "حقوق ملكية", report: "ميزانية عمومية" },
-            { code: "401", name: "إيرادات مبيعات الفوندان والشوكولاتة", type: "إيرادات", report: "حساب متاجرة" },
-            { code: "402", name: "إيرادات خدمات خاصة", type: "إيرادات", report: "قائمة دخل" },
-            { code: "501", name: "تكلفة شراء المواد الخام", type: "تكلفة المبيعات", report: "حساب متاجرة" },
-            { code: "601", name: "مصروف الرواتب والأجور", type: "مصروفات", report: "قائمة دخل" },
-            { code: "602", name: "مصروف الإيجار", type: "مصروفات", report: "قائمة دخل" },
-            { code: "603", name: "مصروف الكهرباء والماء", type: "مصروفات", report: "قائمة دخل" },
-            { code: "604", name: "مصروفات عمومية وإدارية", type: "مصروفات", report: "قائمة دخل" },
-            { code: "605", name: "مصروف إهلاك الأصول الثابتة", type: "مصروفات", report: "قائمة دخل" }
-        ];
+    {
+        "subType": "نقدية وبنوك",
+        "name": "الصندوق الرئيسية",
+        "report": "ميزانية عمومية",
+        "cashBank": true,
+        "balanceGroup": "cash",
+        "type": "أصول",
+        "code": "001-001",
+        "groupCode": "000-001"
+    },
+    {
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "cashBank": true,
+        "subType": "other_assets",
+        "balanceGroup": "cash",
+        "name": "بيت التمويل الكويتي - 8715",
+        "code": "001-002",
+        "groupCode": "000-002"
+    },
+    {
+        "name": "العملاء / مدينون",
+        "type": "أصول",
+        "subType": "receivables",
+        "balanceGroup": "receivables",
+        "report": "ميزانية عمومية",
+        "code": "001-003",
+        "groupCode": "000-003"
+    },
+    {
+        "type": "أصول",
+        "subType": "inventory",
+        "balanceGroup": "inventory",
+        "report": "حساب متاجرة",
+        "name": "مخزون الشوكولاتة والمواد الخام",
+        "code": "001-004",
+        "groupCode": "000-004"
+    },
+    {
+        "type": "أصول",
+        "balanceGroup": "fixed_assets",
+        "cashBank": false,
+        "subType": "Fixed_Assets",
+        "report": "ميزانية عمومية",
+        "name": "الأثاث والمعدات",
+        "code": "001-005",
+        "groupCode": "000-005"
+    },
+    {
+        "report": "ميزانية عمومية",
+        "type": "أصول",
+        "balanceGroup": "accumulated_depreciation",
+        "subType": "accumulated_depreciation",
+        "name": "مجمع إهلاك الاثاث",
+        "cashBank": false,
+        "code": "001-006",
+        "groupCode": "000-006"
+    },
+    {
+        "balanceGroup": "fixed_assets",
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "name": "ديكورات",
+        "subType": "Fixed_Assets",
+        "cashBank": false,
+        "code": "002-005",
+        "groupCode": "000-005"
+    },
+    {
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "cashBank": false,
+        "subType": "accumulated_depreciation",
+        "balanceGroup": "accumulated_depreciation",
+        "name": "مجمع اهلاك ديكورات",
+        "code": "002-006",
+        "groupCode": "000-006"
+    },
+    {
+        "name": "أجهزة ومعدات",
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "fixed_assets",
+        "subType": "fixed_assets",
+        "cashBank": false,
+        "code": "003-005",
+        "groupCode": "000-005"
+    },
+    {
+        "name": "سيارات",
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "fixed_assets",
+        "subType": "fixed_assets",
+        "cashBank": false,
+        "code": "004-005",
+        "groupCode": "000-005"
+    },
+    {
+        "name": "مجمع اهلاك السيارات",
+        "type": "أصول",
+        "report": "ميزانية عمومية",
+        "balanceGroup": "accumulated_depreciation",
+        "subType": "accumulated_depreciation",
+        "cashBank": false,
+        "code": "003-006",
+        "groupCode": "000-006"
+    },
+    {
+        "name": "الموردون / دائنون",
+        "report": "ميزانية عمومية",
+        "subType": "payables",
+        "type": "خصومات",
+        "balanceGroup": "payables",
+        "code": "001-008",
+        "groupCode": "000-008"
+    },
+    {
+        "subType": "other_current_liabilities",
+        "balanceGroup": "other_current_liabilities",
+        "type": "خصومات",
+        "name": "مصروفات مستحقة",
+        "report": "ميزانية عمومية",
+        "code": "001-009",
+        "groupCode": "000-009"
+    },
+    {
+        "subType": "capital",
+        "report": "ميزانية عمومية",
+        "name": "رأس المال",
+        "balanceGroup": "capital",
+        "type": "حقوق ملكية",
+        "code": "001-010",
+        "groupCode": "000-010"
+    },
+    {
+        "name": "الأرباح المدورة",
+        "report": "ميزانية عمومية",
+        "type": "حقوق ملكية",
+        "subType": "retained_earnings",
+        "balanceGroup": "retained_earnings",
+        "code": "002-010",
+        "groupCode": "000-010"
+    },
+    {
+        "type": "حقوق ملكية",
+        "cashBank": false,
+        "balanceGroup": "partner_current",
+        "name": "جاري الشريك نواف",
+        "subType": "partner_current",
+        "report": "ميزانية عمومية",
+        "code": "003-010",
+        "groupCode": "000-010"
+    },
+    {
+        "name": "جاري الشريك ابراهيم",
+        "cashBank": false,
+        "subType": "partner_current",
+        "balanceGroup": "partner_current",
+        "type": "حقوق ملكية",
+        "report": "ميزانية عمومية",
+        "code": "004-010",
+        "groupCode": "000-010"
+    },
+    {
+        "cashBank": false,
+        "report": "حساب متاجرة",
+        "type": "إيرادات",
+        "balanceGroup": "unclassified",
+        "subType": "unclassified",
+        "name": "إيرادات مبيعات الفوندان والشوكولاتة",
+        "code": "001-011",
+        "groupCode": "000-011"
+    },
+    {
+        "report": "قائمة دخل",
+        "type": "إيرادات",
+        "name": "إيرادات خدمات خاصة",
+        "subType": "unclassified",
+        "balanceGroup": "unclassified",
+        "code": "002-011",
+        "groupCode": "000-011"
+    },
+    {
+        "type": "تكلفة المبيعات",
+        "balanceGroup": "unclassified",
+        "subType": "unclassified",
+        "report": "حساب متاجرة",
+        "name": "تكلفة شراء المواد الخام",
+        "code": "001-012",
+        "groupCode": "000-012"
+    },
+    {
+        "subType": "unclassified",
+        "name": "مصروف الرواتب والأجور",
+        "balanceGroup": "unclassified",
+        "type": "مصروفات",
+        "report": "قائمة دخل",
+        "code": "001-013",
+        "groupCode": "000-013"
+    },
+    {
+        "name": "مصروف الإيجار",
+        "subType": "unclassified",
+        "balanceGroup": "unclassified",
+        "type": "مصروفات",
+        "report": "قائمة دخل",
+        "code": "002-013",
+        "groupCode": "000-013"
+    },
+    {
+        "type": "مصروفات",
+        "balanceGroup": "unclassified",
+        "report": "قائمة دخل",
+        "subType": "unclassified",
+        "name": "مصروف الكهرباء والماء",
+        "code": "003-013",
+        "groupCode": "000-013"
+    },
+    {
+        "subType": "unclassified",
+        "type": "مصروفات",
+        "balanceGroup": "unclassified",
+        "report": "قائمة دخل",
+        "name": "مصروفات عمومية وإدارية",
+        "code": "004-013",
+        "groupCode": "000-013"
+    },
+    {
+        "report": "قائمة دخل",
+        "type": "مصروفات",
+        "balanceGroup": "unclassified",
+        "name": "مصروف إهلاك الأصول الثابتة",
+        "subType": "unclassified",
+        "code": "005-013",
+        "groupCode": "000-013"
+    }
+];
 
         window.state = {
             accounts: [...DEFAULT_ACCOUNTS],
+            accountGroups: [...DEFAULT_ACCOUNT_GROUPS],
             entries: [],
             vouchers: [],
             auditLog: [],
@@ -1621,6 +1946,7 @@
                 window.localCacheFound = true;
                 window.state = {
                     accounts: Array.isArray(parsed.accounts) && parsed.accounts.length ? parsed.accounts : [...DEFAULT_ACCOUNTS],
+                    accountGroups: Array.isArray(parsed.accountGroups) && parsed.accountGroups.length ? parsed.accountGroups : [...DEFAULT_ACCOUNT_GROUPS],
                     entries: Array.isArray(parsed.entries) ? parsed.entries : [],
                     vouchers: Array.isArray(parsed.vouchers) ? parsed.vouchers : [],
                     auditLog: Array.isArray(parsed.auditLog) ? parsed.auditLog : [],
@@ -1633,6 +1959,7 @@
                     closedThrough: parsed.closedThrough || ''
                 };
                 repairAssetPostingLinks();
+                migrateAccountsToGroupedCodes(window.state);
             } catch (e) {
                 console.warn("Cache load skipped:", e);
             }
@@ -1681,6 +2008,7 @@
             if (confirm("تحذير: هل أنت متأكد من مسح كافة البيانات السحابية والمحلية والعودة للوضع المبدئي؟")) {
                 window.state = {
                     accounts: [...DEFAULT_ACCOUNTS],
+                    accountGroups: [...DEFAULT_ACCOUNT_GROUPS],
                     entries: [],
                     vouchers: [],
                     auditLog: [],
@@ -1773,7 +2101,7 @@
         }
         function extractAccountCode(val){
             if(!val)return '';const text=String(val).trim();
-            const legacy=text.match(/^([^ -]+)\s+-\s+/);if(legacy&&(window.state.accounts||[]).some(a=>String(a.code)===legacy[1]))return legacy[1];
+            const exactCode=(window.state.accounts||[]).find(a=>String(a.code)===text);if(exactCode)return String(exactCode.code);const legacy=text.match(/^(\S+)\s+-\s+/);if(legacy&&(window.state.accounts||[]).some(a=>String(a.code)===legacy[1]))return legacy[1];
             const exact=(window.state.accounts||[]).filter(a=>String(a.name).trim()===text);
             return exact.length===1?String(exact[0].code):'';
         }
@@ -1796,6 +2124,132 @@
             }
             return 'unclassified';
         }
+        function compareAccountCodes(a,b){
+            const ac=String(typeof a==='string'?a:a?.code||''),bc=String(typeof b==='string'?b:b?.code||'');
+            const ap=ac.split('-'),bp=bc.split('-');const ag=Number(ap[1]||0),bg=Number(bp[1]||0);if(ag!==bg)return ag-bg;return Number(ap[0]||0)-Number(bp[0]||0);
+        }
+        function accountGroupByCode(code){return (window.state.accountGroups||[]).find(g=>String(g.code)===String(code));}
+        function inferAccountGroupCode(acc){
+            const n=String(acc?.name||'');const bg=String(acc?.balanceGroup||acc?.subType||'');const type=String(acc?.type||'');
+            if(type==='أصول'){
+                if(acc.cashBank||bg==='cash')return /بنك|bank|التمويل/i.test(n)?'000-002':'000-001';
+                if(bg==='receivables'||/عميل|مدين/.test(n))return '000-003';
+                if(bg==='inventory'||/مخزون|بضاعة/.test(n))return '000-004';
+                if(bg==='accumulated_depreciation'||/مجمع\s*اهلاك|مجمع إهلاك/.test(n))return '000-006';
+                if(bg==='fixed_assets'||/أثاث|معدات|ديكور|سيارات|أصول ثابتة/.test(n))return '000-005';
+                if(/غير ملموس|شهرة|استغلال|حق استخدام/.test(n))return '000-007';
+                return '000-014';
+            }
+            if(type==='خصومات')return bg==='payables'||/مورد|دائن/.test(n)?'000-008':(bg==='long_term_liabilities'?'000-015':'000-009');
+            if(type==='حقوق ملكية')return '000-010';
+            if(type==='إيرادات')return '000-011';
+            if(type==='تكلفة المبيعات')return '000-012';
+            if(type==='مصروفات')return '000-013';
+            return '000-014';
+        }
+        function remapAccountReferenceObject(obj,map){
+            if(!obj||typeof obj!=='object')return;
+            const keys=['accountCode','mainAccount','oppositeAccount','assetAccount','accumAccount','expenseAccount','creditAccount','control','offset','bankAccount','bankAccountCode'];
+            if(Array.isArray(obj)){obj.forEach(x=>remapAccountReferenceObject(x,map));return;}
+            Object.keys(obj).forEach(k=>{
+                if(keys.includes(k)&&obj[k]!=null&&map.has(String(obj[k])))obj[k]=map.get(String(obj[k]));
+                else if(obj[k]&&typeof obj[k]==='object')remapAccountReferenceObject(obj[k],map);
+            });
+        }
+        function migrateAccountsToGroupedCodes(target=window.state){
+            if(!target||!Array.isArray(target.accounts))return false;
+            let changed=false;
+            const merged=new Map((DEFAULT_ACCOUNT_GROUPS||[]).map(g=>[g.code,{...g}]));
+            (Array.isArray(target.accountGroups)?target.accountGroups:[]).forEach(g=>{if(g&&g.code)merged.set(String(g.code),{...(merged.get(String(g.code))||{}),...g});});
+            target.accountGroups=Array.from(merged.values()).sort((a,b)=>Number(a.code.split('-')[1])-Number(b.code.split('-')[1]));
+            const groupMap=new Map(target.accountGroups.map(g=>[String(g.code),g]));
+            const codeMap=new Map();const seq={};
+            target.accounts.forEach(a=>{
+                const m=String(a.code||'').match(/^(\d{3})-(\d{3})$/);
+                if(m){if(!a.groupCode){a.groupCode='000-'+m[2];changed=true;}if(!groupMap.has(a.groupCode)){const inferred=groupMap.get(inferAccountGroupCode(a))||groupMap.get('000-014');a.groupCode=inferred.code;changed=true;}seq[a.groupCode]=Math.max(seq[a.groupCode]||0,Number(m[1]));}
+            });
+            const legacy=target.accounts.filter(a=>!/^(\d{3})-(\d{3})$/.test(String(a.code||''))).sort(compareAccountCodes);
+            legacy.forEach(a=>{
+                const old=String(a.code||'');let gc=inferAccountGroupCode(a);if(!groupMap.has(gc))gc='000-014';
+                seq[gc]=(seq[gc]||0)+1;let next=String(seq[gc]).padStart(3,'0')+'-'+gc.slice(-3);
+                while(target.accounts.some(x=>x!==a&&String(x.code)===next)){seq[gc]++;next=String(seq[gc]).padStart(3,'0')+'-'+gc.slice(-3);}
+                if(old)codeMap.set(old,next);
+                a.legacyCode=a.legacyCode||old;a.code=next;a.groupCode=gc;changed=true;
+            });
+            target.accounts.forEach(a=>{
+                const suffix=String(a.code||'').match(/^\d{3}-(\d{3})$/);
+                if(suffix&&a.groupCode!=='000-'+suffix[1]){a.groupCode='000-'+suffix[1];changed=true;}
+                if(a.groupCode&&!groupMap.has(a.groupCode)){
+                    const base=groupMap.get(inferAccountGroupCode(a))||groupMap.get('000-014');
+                    const dynamic={...base,code:a.groupCode,name:'مجموعة حسابات إضافية'};target.accountGroups.push(dynamic);groupMap.set(a.groupCode,dynamic);changed=true;
+                }
+            });
+            if(codeMap.size){
+                (target.entries||[]).forEach(e=>remapAccountReferenceObject(e,codeMap));
+                (target.vouchers||[]).forEach(v=>remapAccountReferenceObject(v,codeMap));
+                (target.assets||[]).forEach(a=>remapAccountReferenceObject(a,codeMap));
+                (target.arApInvoices||[]).forEach(x=>remapAccountReferenceObject(x,codeMap));
+                (target.bankRecItems||[]).forEach(x=>remapAccountReferenceObject(x,codeMap));
+                const oldFlowClasses=target.cashFlowClasses||{};Object.keys(oldFlowClasses).forEach(oldCode=>{if(codeMap.has(String(oldCode))){oldFlowClasses[codeMap.get(String(oldCode))]=oldFlowClasses[oldCode];delete oldFlowClasses[oldCode];}});
+                remapAccountReferenceObject(oldFlowClasses,codeMap);
+                (target.auditLog||[]).forEach(log=>{if(log.type==='حساب'&&codeMap.has(String(log.reference)))log.reference=codeMap.get(String(log.reference));});
+            }
+            target.accounts.sort((a,b)=>{
+                const ga=Number(String(a.groupCode||'000-999').split('-')[1]||999),gb=Number(String(b.groupCode||'000-999').split('-')[1]||999);
+                if(ga!==gb)return ga-gb;
+                return Number(String(a.code).split('-')[0])-Number(String(b.code).split('-')[0]);
+            });
+            if(changed){
+                try{localStorage.setItem('fondant_choco_acc_state',JSON.stringify(target));}catch(e){console.warn('Grouped chart local cache update failed',e);}
+            }
+            return changed;
+        }
+        window.migrateAccountsToGroupedCodes=migrateAccountsToGroupedCodes;
+        function groupAccountCode(groupCode,sequence){return String(sequence).padStart(3,'0')+'-'+String(groupCode).slice(-3);}
+        function populateAccountGroupSelect(selectedCode='',typeFilter=''){
+            const el=document.getElementById('accGroupCode');if(!el)return;
+            const groups=(window.state.accountGroups||[]).filter(g=>!typeFilter||g.type===typeFilter);
+            el.innerHTML=groups.map(g=>`<option value="${g.code}">${g.code} - ${g.name}</option>`).join('');
+            if(selectedCode&&groups.some(g=>g.code===selectedCode))el.value=selectedCode;
+            else if(groups.length)el.value=groups[0].code;
+        }
+        function onAccountGroupChanged(){
+            const gc=document.getElementById('accGroupCode')?.value;const g=accountGroupByCode(gc);if(!g)return;
+            const typeEl=document.getElementById('accType'),reportEl=document.getElementById('accReport'),bsEl=document.getElementById('accBsGroup');
+            if(typeEl)typeEl.value=g.type||'أصول';if(reportEl&&g.report)reportEl.value=g.report;if(bsEl&&g.balanceGroup)bsEl.value=g.balanceGroup;
+            suggestNextAccountCode();
+        }
+        function filterAccountGroupsByType(){
+            const type=document.getElementById('accType')?.value||'';const old=document.getElementById('accGroupCode')?.value;
+            populateAccountGroupSelect('',type);const el=document.getElementById('accGroupCode');
+            if(old&&Array.from(el.options).some(o=>o.value===old))el.value=old;
+            onAccountGroupChanged();
+        }
+        function createAccountGroup(){
+            if(!canManageAccounts())return alert('ليست لديك صلاحية إدارة دليل الحسابات.');
+            const name=prompt('اكتب اسم المجموعة الرئيسية الجديدة:');if(!name||!name.trim())return;
+            const modalVisible=document.getElementById('accountModal')?.classList.contains('show');
+            let type=document.getElementById('accType')?.value||'أصول';
+            let report=document.getElementById('accReport')?.value||'ميزانية عمومية';
+            let balanceGroup=document.getElementById('accBsGroup')?.value||'other_assets';
+            if(!modalVisible){
+                const choice=prompt('حدد نوع المجموعة:\n1 - أصول\n2 - خصومات / التزامات\n3 - حقوق ملكية\n4 - إيرادات\n5 - تكلفة المبيعات\n6 - مصروفات','1');
+                if(choice===null)return;
+                const types={'1':'أصول','2':'خصومات','3':'حقوق ملكية','4':'إيرادات','5':'تكلفة المبيعات','6':'مصروفات'};
+                if(!types[String(choice).trim()])return alert('اختيار نوع المجموعة غير صحيح.');
+                type=types[String(choice).trim()];
+                report=['أصول','خصومات','حقوق ملكية'].includes(type)?'ميزانية عمومية':(type==='تكلفة المبيعات'?'حساب متاجرة':'قائمة دخل');
+                balanceGroup=type==='أصول'?'other_assets':type==='خصومات'?'other_current_liabilities':type==='حقوق ملكية'?'retained_earnings':'unclassified';
+            }
+            if((window.state.accountGroups||[]).some(g=>g.name.trim().toLowerCase()===name.trim().toLowerCase()))return alert('اسم المجموعة موجود بالفعل.');
+            const max=(window.state.accountGroups||[]).reduce((m,g)=>Math.max(m,Number(String(g.code).split('-')[1])||0),0);
+            const code='000-'+String(max+1).padStart(3,'0');
+            window.state.accountGroups=window.state.accountGroups||[];window.state.accountGroups.push({code,name:name.trim(),type,report,balanceGroup});
+            addAudit('إضافة','مجموعة حسابات',code,name.trim());if(!saveState())return;
+            populateAccountGroupSelect(code,type);if(modalVisible)onAccountGroupChanged();renderAccountsTable();
+        }
+        function addAccountInGroup(groupCode){openAccountModal();const el=document.getElementById('accGroupCode');if(el){el.disabled=false;populateAccountGroupSelect(groupCode);onAccountGroupChanged();}}
+
         function normalizeAccountClassifications(){(window.state.accounts||[]).forEach(a=>{if(!a.balanceGroup)a.balanceGroup=inferAccountBalanceGroup(a);if(!a.subType)a.subType=a.balanceGroup==='cash'?'نقدية وبنوك':a.balanceGroup;if(a.balanceGroup==='cash')a.cashBank=true;});}
         function handleAccountEntry(input){
             if(!input)return;const code=extractAccountCode(input.value);if(code)return;const typed=String(input.value||'').trim();if(!typed)return;
@@ -1804,7 +2258,14 @@
             input.dataset.pendingAccountName=typed;window.pendingAccountTargetId=input.id;window.pendingAccountFocusId=input.id;openAccountModal();document.getElementById('accName').value=typed;suggestDefaultBalanceGroup();
         }
         function canManageAccounts(){return !!currentUser&&currentUser.role!=='viewer'&&hasPermission('chartOfAccounts');}
-        function suggestDefaultBalanceGroup(){const type=document.getElementById('accType')?.value,name=document.getElementById('accName')?.value||'';const group=inferAccountBalanceGroup({type,name});const el=document.getElementById('accBsGroup');if(el&&group!=='unclassified')el.value=group;}
+        function suggestDefaultBalanceGroup(){
+            const type=document.getElementById('accType')?.value,name=document.getElementById('accName')?.value||'';
+            const selectedGroup=accountGroupByCode(document.getElementById('accGroupCode')?.value);
+            const inferred=inferAccountBalanceGroup({type,name});let group=selectedGroup?.balanceGroup||inferred;
+            if(selectedGroup?.code==='000-001'||selectedGroup?.code==='000-002')group='cash';
+            if(selectedGroup?.code==='000-010'&&['capital','partner_current','reserves','retained_earnings'].includes(inferred))group=inferred;
+            const el=document.getElementById('accBsGroup');if(el&&group)el.value=group;
+        }
 
         function getAccountByCode(code) {
             return window.state.accounts.find(a => a.code === code) || { code: code, name: code };
@@ -1877,78 +2338,51 @@
         }
 
         function renderAccountsTable() {
-            const tbody = document.getElementById('accountsTableBody');
-            if(!tbody)return;
-            window.state.accounts.sort((a,b)=>String(a.code).localeCompare(String(b.code),undefined,{numeric:true}));
-            tbody.innerHTML = '';
-            window.state.accounts.forEach(acc => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td><b>${acc.code}</b></td>
-                    <td><a class="account-link" onclick="openStatementForAccount('${acc.code}')">${acc.name}</a></td>
-                    <td><span class="badge bg-secondary">${acc.type}</span><div class="small text-muted">${acc.subType||acc.balanceGroup||''}</div></td>
-                    <td><span class="badge bg-info text-dark">${acc.report}</span></td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-primary py-0 px-2 me-1" onclick="openAccountModal('${acc.code}')"><i class="fas fa-edit"></i></button>
-                        <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteAccount('${acc.code}')"><i class="fas fa-trash"></i></button>
-                    </td>
-                `;
-                tbody.appendChild(tr);
+            const tbody=document.getElementById('accountsTableBody');if(!tbody)return;
+            const groups=(window.state.accountGroups||[]).slice().sort((a,b)=>Number(a.code.split('-')[1])-Number(b.code.split('-')[1]));
+            let rows='';const rendered=new Set();
+            groups.forEach(g=>{
+                const children=(window.state.accounts||[]).filter(a=>String(a.groupCode)===String(g.code)).sort((a,b)=>Number(String(a.code).split('-')[0])-Number(String(b.code).split('-')[0]));
+                rows+=`<tr class="account-group-row"><td><strong>${g.code}</strong></td><td class="text-start"><strong><i class="fas fa-folder-open text-warning me-1"></i>${g.name}</strong></td><td><span class="badge bg-primary">مجموعة رئيسية</span><div class="small text-muted">${g.type||''}</div></td><td>${g.report||'—'}</td><td><button class="btn btn-sm btn-outline-primary py-0 px-2" onclick="addAccountInGroup('${g.code}')"><i class="fas fa-plus me-1"></i> حساب فرعي</button></td></tr>`;
+                children.forEach(acc=>{
+                    rendered.add(String(acc.code));
+                    rows+=`<tr><td class="text-muted">${acc.code}</td><td class="text-start ps-4"><a class="account-link" onclick="openStatementForAccount('${acc.code}')">${acc.name}</a></td><td><span class="badge bg-secondary">${acc.type}</span><div class="small text-muted">${acc.subType||acc.balanceGroup||''}</div></td><td><span class="badge bg-info text-dark">${acc.report||'—'}</span></td><td><button class="btn btn-sm btn-outline-primary py-0 px-2 me-1" onclick="openAccountModal('${acc.code}')"><i class="fas fa-edit"></i></button><button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="deleteAccount('${acc.code}')"><i class="fas fa-trash"></i></button></td></tr>`;
+                });
             });
+            (window.state.accounts||[]).filter(a=>!rendered.has(String(a.code))).forEach(acc=>{
+                rows+=`<tr><td>${acc.code}</td><td class="text-start"><a class="account-link" onclick="openStatementForAccount('${acc.code}')">${acc.name}</a></td><td>${acc.type}</td><td>${acc.report||'—'}</td><td><button class="btn btn-sm btn-outline-primary" onclick="openAccountModal('${acc.code}')">تعديل</button></td></tr>`;
+            });
+            tbody.innerHTML=rows||'<tr><td colspan="5" class="text-muted">لا توجد حسابات مسجلة</td></tr>';
         }
 
         function openAccountModal(code = null) {
             if (!canManageAccounts()) return alert('ليست لديك صلاحية إدارة دليل الحسابات.');
-            const accountModalEl = document.getElementById('accountModal');
-            const modal = bootstrap.Modal.getOrCreateInstance(accountModalEl);
+            const accountModalEl=document.getElementById('accountModal');const modal=bootstrap.Modal.getOrCreateInstance(accountModalEl);
+            const groupEl=document.getElementById('accGroupCode'),typeEl=document.getElementById('accType');
             if(code){
-                const acc=getAccountByCode(code); document.getElementById('accountModalTitle').innerText='تعديل حساب';
-                document.getElementById('accEditCode').value=acc.code; document.getElementById('accCode').value=acc.code; document.getElementById('accCode').readOnly=true;
-                document.getElementById('accName').value=acc.name; document.getElementById('accType').value=acc.type; document.getElementById('accReport').value=acc.report;
-                document.getElementById('accBsGroup').value=acc.balanceGroup||inferAccountBalanceGroup(acc); document.getElementById('accSubType').value=acc.subType||'';
+                const acc=getAccountByCode(code);document.getElementById('accountModalTitle').innerText='تعديل حساب';
+                document.getElementById('accEditCode').value=acc.code;document.getElementById('accCode').value=acc.code;document.getElementById('accCode').readOnly=true;
+                document.getElementById('accName').value=acc.name;typeEl.value=acc.type;typeEl.disabled=true;
+                populateAccountGroupSelect(acc.groupCode,acc.type);if(groupEl){groupEl.value=acc.groupCode||'';groupEl.disabled=true;}
+                document.getElementById('accReport').value=acc.report||'ميزانية عمومية';
+                document.getElementById('accBsGroup').value=acc.balanceGroup||inferAccountBalanceGroup(acc);document.getElementById('accSubType').value=acc.subType||'';
             }else{
-                document.getElementById('accountModalTitle').innerText='إضافة حساب جديد'; document.getElementById('accountForm').reset();
-                document.getElementById('accEditCode').value=''; document.getElementById('accCode').readOnly=false;
-                document.getElementById('accBsGroup').value='other_assets'; suggestNextAccountCode(); suggestDefaultBalanceGroup();
+                document.getElementById('accountModalTitle').innerText='إضافة حساب جديد';document.getElementById('accountForm').reset();
+                document.getElementById('accEditCode').value='';document.getElementById('accCode').readOnly=true;typeEl.disabled=false;
+                if(groupEl)groupEl.disabled=false;
+                document.getElementById('accBsGroup').value='cash';
+                populateAccountGroupSelect('000-001','أصول');onAccountGroupChanged();
             }
-            const parentModal = Array.from(document.querySelectorAll('.modal.show')).find(el => el.id !== 'accountModal');
-            window.pendingAccountParentModalId = parentModal ? parentModal.id : null;
-            window.pendingAccountResume = null;
-            if (parentModal) {
-                let resumed = false;
-                const resumeParent = () => {
-                    if (resumed) return;
-                    resumed = true;
-                    const parentId = window.pendingAccountParentModalId;
-                    window.pendingAccountParentModalId = null;
-                    window.pendingAccountResume = null;
-                    if (window.pendingAccountTargetId) {
-                        const pendingInput = document.getElementById(window.pendingAccountTargetId);
-                        if (pendingInput && pendingInput.dataset.pendingAccountName) {
-                            pendingInput.value = '';
-                            delete pendingInput.dataset.pendingAccountName;
-                        }
-                        window.pendingAccountTargetId = null;
-                    }
-                    const parentEl = parentId ? document.getElementById(parentId) : null;
-                    if (parentEl) {
-                        bootstrap.Modal.getOrCreateInstance(parentEl).show();
-                        const focusTarget = parentEl.querySelector('#' + (window.pendingAccountFocusId || ''));
-                        if (focusTarget) setTimeout(() => focusTarget.focus(), 350);
-                    }
-                };
-                window.pendingAccountResume = resumeParent;
-                accountModalEl.addEventListener('hidden.bs.modal', resumeParent, { once: true });
-                parentModal.addEventListener('hidden.bs.modal', () => modal.show(), { once: true });
-                bootstrap.Modal.getOrCreateInstance(parentModal).hide();
-                // Guard against a modal hidden-event not firing after a mobile browser interruption.
-                setTimeout(() => {
-                    if (window.pendingAccountParentModalId && !accountModalEl.classList.contains('show') && !parentModal.classList.contains('show')) modal.show();
-                }, 450);
-            } else {
-                window.pendingAccountParentModalId = null;
-                modal.show();
-            }
+            const parentModal=Array.from(document.querySelectorAll('.modal.show')).find(el=>el.id!=='accountModal');
+            window.pendingAccountParentModalId=parentModal?parentModal.id:null;window.pendingAccountResume=null;
+            if(parentModal){
+                let resumed=false;const resumeParent=()=>{if(resumed)return;resumed=true;const parentId=window.pendingAccountParentModalId;window.pendingAccountParentModalId=null;window.pendingAccountResume=null;
+                    if(window.pendingAccountTargetId){const pendingInput=document.getElementById(window.pendingAccountTargetId);if(pendingInput&&pendingInput.dataset.pendingAccountName){delete pendingInput.dataset.pendingAccountName;}window.pendingAccountTargetId=null;}
+                    const parentEl=parentId?document.getElementById(parentId):null;if(parentEl){bootstrap.Modal.getOrCreateInstance(parentEl).show();const focusTarget=parentEl.querySelector('#'+(window.pendingAccountFocusId||''));if(focusTarget)setTimeout(()=>focusTarget.focus(),350);}};
+                window.pendingAccountResume=resumeParent;accountModalEl.addEventListener('hidden.bs.modal',resumeParent,{once:true});
+                parentModal.addEventListener('hidden.bs.modal',()=>modal.show(),{once:true});bootstrap.Modal.getOrCreateInstance(parentModal).hide();
+                setTimeout(()=>{if(window.pendingAccountParentModalId&&!accountModalEl.classList.contains('show')&&!parentModal.classList.contains('show'))modal.show();},450);
+            }else{window.pendingAccountParentModalId=null;modal.show();}
         }
         function closeAccountModalAndResumeParent() {
             const accountModalEl = document.getElementById('accountModal');
@@ -1959,38 +2393,39 @@
             }, 500);
         }
         function suggestNextAccountCode(){
-            const edit=document.getElementById('accEditCode')?.value, codeEl=document.getElementById('accCode'); if(edit||!codeEl||codeEl.readOnly)return;
-            const prefixes={'أصول':'1','خصومات':'2','حقوق ملكية':'3','إيرادات':'4','تكلفة المبيعات':'5','مصروفات':'6'};
-            const prefix=prefixes[document.getElementById('accType')?.value]; if(!prefix)return;
-            const codes=(window.state.accounts||[]).map(a=>String(a.code)).filter(c=>c.startsWith(prefix)&&/^\d+$/.test(c));
-            const width=Math.max(3,...codes.map(c=>c.length));
-            const max=codes.reduce((m,c)=>Math.max(m,Number(c)),Number(prefix+'00'));
-            let candidate=String(max+1).padStart(width,'0'); while(window.state.accounts.some(a=>String(a.code)===candidate))candidate=String(Number(candidate)+1).padStart(Math.max(width,candidate.length+1),'0');
-            codeEl.value=candidate;
+            const edit=document.getElementById('accEditCode')?.value,codeEl=document.getElementById('accCode');if(edit||!codeEl||codeEl.readOnly&&document.getElementById('accGroupCode')?.disabled)return;
+            const groupCode=document.getElementById('accGroupCode')?.value;if(!groupCode)return;
+            const used=(window.state.accounts||[]).filter(a=>String(a.groupCode)===String(groupCode)).map(a=>Number(String(a.code).split('-')[0])||0);
+            const next=Math.max(0,...used)+1;codeEl.value=groupAccountCode(groupCode,next);
         }
         function saveAccount() {
             if(!canManageAccounts())return alert('ليست لديك صلاحية إدارة دليل الحسابات.');
             try{
-                const editCode=document.getElementById('accEditCode').value.trim(), code=document.getElementById('accCode').value.trim(), name=document.getElementById('accName').value.trim();
-                const type=document.getElementById('accType').value, report=document.getElementById('accReport').value;
-                let balanceGroup=document.getElementById('accBsGroup').value; const subType=document.getElementById('accSubType').value.trim()||balanceGroup;
+                const editCode=document.getElementById('accEditCode').value.trim(),code=document.getElementById('accCode').value.trim(),name=document.getElementById('accName').value.trim();
+                const groupCode=document.getElementById('accGroupCode').value;const group=accountGroupByCode(groupCode);
+                const type=document.getElementById('accType').value,report=document.getElementById('accReport').value;
+                let balanceGroup=document.getElementById('accBsGroup').value;if(groupCode==='000-001'||groupCode==='000-002')balanceGroup='cash';const subType=document.getElementById('accSubType').value.trim()||balanceGroup;
                 const allowedGroups={ 'أصول':['cash','receivables','inventory','prepayments','fixed_assets','accumulated_depreciation','other_assets','unclassified'], 'خصومات':['payables','other_current_liabilities','long_term_liabilities','unclassified'], 'حقوق ملكية':['capital','partner_current','reserves','retained_earnings','unclassified'] };
+                if(!group)return alert('اختر مجموعة رئيسية صالحة للحساب.');
+                if(group.type!==type)return alert('نوع الحساب لا يتطابق مع المجموعة الرئيسية المختارة.');
                 if(allowedGroups[type]&&!allowedGroups[type].includes(balanceGroup))return alert('مجموعة العرض المختارة لا تتناسب مع النوع الرئيسي للحساب.');
                 if(!allowedGroups[type])balanceGroup='unclassified';
                 if(!code||!name)return alert('يرجى إدخال رمز الحساب واسمه.');
+                if(!/^\d{3}-\d{3}$/.test(code)||!code.endsWith('-'+groupCode.slice(-3)))return alert('رمز الحساب الفرعي غير صحيح أو لا يتبع المجموعة المختارة.');
                 if(window.state.accounts.some(a=>String(a.code)===code&&String(a.code)!==editCode))return alert('رمز الحساب موجود بالفعل.');
                 if(window.state.accounts.some(a=>String(a.name).trim().toLowerCase()===name.toLowerCase()&&String(a.code)!==editCode))return alert('اسم الحساب موجود بالفعل.');
-                if(editCode){const acc=window.state.accounts.find(a=>String(a.code)===editCode);if(!acc)return alert('الحساب المراد تعديله غير موجود.');
+                if(editCode){
+                    const acc=window.state.accounts.find(a=>String(a.code)===editCode);if(!acc)return alert('الحساب المراد تعديله غير موجود.');
                     acc.name=name;acc.type=type;acc.report=report;acc.balanceGroup=balanceGroup;acc.subType=subType;acc.cashBank=balanceGroup==='cash';
-                    addAudit('تعديل','حساب',code,name+' | '+balanceGroup);
+                    addAudit('تعديل','حساب',code,name+' | '+group.name+' | '+balanceGroup);
                 }else{
-                    window.state.accounts.push({code,name,type,report,balanceGroup,subType,cashBank:balanceGroup==='cash'});
-                    window.state.accounts.sort((a,b)=>String(a.code).localeCompare(String(b.code),undefined,{numeric:true})); addAudit('إضافة','حساب',code,name+' | '+balanceGroup);
+                    if(window.state.accounts.some(a=>String(a.groupCode)===groupCode&&Number(String(a.code).split('-')[0])===Number(code.split('-')[0])))return alert('رقم الحساب الفرعي مستخدم بالفعل داخل هذه المجموعة.');
+                    window.state.accounts.push({code,groupCode,name,type,report,balanceGroup,subType,cashBank:balanceGroup==='cash'});
+                    addAudit('إضافة','حساب',code,name+' | '+group.name+' | '+balanceGroup);
                 }
-                if(!saveState())return; normalizeAccountClassifications(); renderAccountsTable(); renderDashboard(); updateAccountsDatalist();
-                const pendingId=window.pendingAccountTargetId; if(pendingId){const el=document.getElementById(pendingId);if(el)el.value=name;window.pendingAccountTargetId=null;}
-                if (typeof closeAccountModalAndResumeParent === 'function') closeAccountModalAndResumeParent();
-                else bootstrap.Modal.getOrCreateInstance(document.getElementById('accountModal')).hide();
+                if(!saveState())return;normalizeAccountClassifications();renderAccountsTable();renderDashboard();updateAccountsDatalist();
+                const pendingId=window.pendingAccountTargetId;if(pendingId){const el=document.getElementById(pendingId);if(el)el.value=name;window.pendingAccountTargetId=null;}
+                if(typeof closeAccountModalAndResumeParent==='function')closeAccountModalAndResumeParent();else bootstrap.Modal.getOrCreateInstance(document.getElementById('accountModal')).hide();
             }catch(err){console.error(err);alert('حدث خطأ أثناء حفظ الحساب: '+(err.message||err));}
         }
 
@@ -2067,7 +2502,10 @@
         function printJournalPreview(){
             const card=document.getElementById('journalPrintCard');if(!card)return;
             const w=window.open('','_blank');if(!w)return alert('يرجى السماح بالنوافذ المنبثقة للطباعة.');
-            w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>قيد يومية</title><style>body{font-family:Tahoma,Arial;padding:22px;direction:rtl;color:#222}.journal-preview-card{background:#f0eef9;border:2px solid #6554a3;border-radius:8px;padding:18px}.report-header{display:flex;justify-content:space-between;border-bottom:2px solid #6554a3;padding-bottom:8px;margin-bottom:12px}.report-header img{width:55px;height:55px;object-fit:cover}table{width:100%;border-collapse:collapse;margin-top:15px}th,td{border:1px solid #777;padding:7px;text-align:center}th{background:#eee}.num-right{text-align:right;direction:ltr}</style></head><body>${card.outerHTML}<script>window.onload=()=>window.print()<\/script></body></html>`);w.document.close();
+            w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>قيد يومية</title><style>body{font-family:Tahoma,Arial;padding:22px;direction:rtl;color:#222}.journal-preview-card{background:#f0eef9;border:2px solid #6554a3;border-radius:8px;padding:18px}.report-header{display:flex;justify-content:space-between;border-bottom:2px solid #6554a3;padding-bottom:8px;margin-bottom:12px}.report-header img{width:55px;height:55px;object-fit:cover}table{width:100%;border-collapse:collapse;margin-top:15px}th,td{border:1px solid #777;padding:7px;text-align:center}th{background:#eee}.num-right{text-align:right;direction:ltr}
+        .account-group-row td{background:#eaf1f8!important;font-weight:700;border-top:2px solid #9db4ca!important;color:#17324d}
+        .account-group-row .btn{font-weight:600}
+</style></head><body>${card.outerHTML}<script>window.onload=()=>window.print()<\/script></body></html>`);w.document.close();
         }
 
         function openEntryModal(entryId = null) {
@@ -2993,7 +3431,7 @@
                     } else {
                         cols.forEach(c=>(c.data.groups[g]||[]).forEach(a=>accountMap.set(String(a.code),a)));
                     }
-                    const accounts=Array.from(accountMap.values()).sort((a,b)=>String(a.code).localeCompare(String(b.code),undefined,{numeric:true}));
+                    const accounts=Array.from(accountMap.values()).sort(compareAccountCodes);
                     if(!groupHasValue && (mode!=='detail'||!accounts.length))return;
                     if(mode==='summary'){
                         const title=g==='fixed_assets'?'صافي القيمة الدفترية للأصول الثابتة':labels[g];
@@ -3188,18 +3626,23 @@
             window.state.vouchers.filter(v=>v.date>=start&&v.date<=end).forEach(v=>{const cashCode=v.type==='receipt'?v.mainAccount:v.mainAccount;if(!cashSet.has(cashCode))return;const other=v.oppositeAccount;if(cashSet.has(other))return;const delta=v.type==='receipt'?Number(v.amount):-Number(v.amount);add(cashClassForAccount(other),delta);});
             const names={operating:'الأنشطة التشغيلية',investing:'الأنشطة الاستثمارية',financing:'الأنشطة التمويلية'};let totalIn=0,totalOut=0,body='';Object.keys(groups).forEach(k=>{const g=groups[k];totalIn+=g.in;totalOut+=g.out;body+=`<tr class="table-light fw-bold"><td colspan="3">${names[k]}</td></tr><tr><td>متحصلات نقدية</td><td class="num-right">${formatNum(g.in)}</td><td></td></tr><tr><td>مدفوعات نقدية</td><td></td><td class="num-right">${formatNum(g.out)}</td></tr><tr><td>صافي ${names[k]}</td><td colspan="2" class="num-right fw-bold">${formatNum(g.in-g.out)}</td></tr>`;});document.getElementById('cashFlowReport').innerHTML=`<div class="report-panel">${getHeaderHTML('قائمة التدفقات النقدية المصنفة',formatDate(start)+' إلى '+formatDate(end))}<table class="table table-bordered"><thead><tr><th>البيان</th><th>التدفقات الداخلة</th><th>التدفقات الخارجة</th></tr></thead><tbody>${body}</tbody><tfoot><tr class="table-primary fw-bold"><td>صافي التغير في النقدية</td><td colspan="2" class="num-right">${formatNum(totalIn-totalOut)}</td></tr></tfoot></table></div>`;}
         function saveAgingInvoice(){if(!canWrite())return alert('ليست لديك صلاحية');const type=document.getElementById('ageInvType').value,ref=document.getElementById('ageInvRef').value.trim(),party=document.getElementById('ageInvParty').value.trim(),date=document.getElementById('ageInvDate').value,due=document.getElementById('ageInvDue').value,amount=Number(document.getElementById('ageInvAmount').value),control=extractAccountCode(document.getElementById('ageInvControl').value),offset=extractAccountCode(document.getElementById('ageInvOffset').value);if(!ref||!party||!date||!due||due<date||!(amount>0)||!Number.isFinite(amount))return alert('أدخل بيانات الفاتورة وتواريخها ومبلغاً صحيحاً');if(isAccountingPeriodLocked(date))return alert('تاريخ الفاتورة ضمن فترة مقفلة ولا يمكن الإضافة إلا بواسطة المدير المالي.');if(!window.state.accounts.some(a=>a.code===control)||!window.state.accounts.some(a=>a.code===offset)||control===offset)return alert('تحقق من حساب الذمم والحساب المقابل');if((window.state.arApInvoices||[]).some(x=>x.ref===ref&&x.type===type))return alert('رقم الفاتورة مسجل مسبقاً لهذا النوع');const ctrl= getAccountByCode(control);if(type==='customer'&&ctrl.type!=='أصول')return alert('اختر حساب ذمم العملاء من نوع أصول');if(type==='supplier'&&ctrl.type!=='خصومات')return alert('اختر حساب ذمم الموردين من نوع خصومات');const id='INV-'+Date.now(),jvId=nextDocumentId('JV-',window.state.entries);const details=type==='customer'?[{accountCode:control,debit:amount,credit:0,note:'فاتورة عميل '+ref},{accountCode:offset,debit:0,credit:amount,note:'إيراد الفاتورة '+ref}]:[{accountCode:offset,debit:amount,credit:0,note:'فاتورة مورد '+ref},{accountCode:control,debit:0,credit:amount,note:'ذمم المورد '+ref}];window.state.entries.push({id:jvId,date,description:(type==='customer'?'إثبات فاتورة عميل ':'إثبات فاتورة مورد ')+ref+' - '+party,details});window.state.arApInvoices=window.state.arApInvoices||[];window.state.arApInvoices.push({id,type,ref,party,date,due,amount,paid:0,control,offset,journalId:jvId,allocations:[]});addAudit('تسجيل فاتورة آجلة',type==='customer'?'عميل':'مورد',ref,party+' - '+amount);if(saveState()){document.getElementById('ageInvRef').value='';document.getElementById('ageInvParty').value='';document.getElementById('ageInvAmount').value='';renderAgingInvoices();generateAging();alert('تم تسجيل الفاتورة وإنشاء القيد المحاسبي.');}}
-        function settleAgingInvoice(id){if(!canWrite())return alert('ليست لديك صلاحية');const inv=(window.state.arApInvoices||[]).find(x=>x.id===id);if(!inv)return;const remain=Number(inv.amount)-Number(inv.paid||0);if(remain<=.0005)return alert('الفاتورة مسددة بالكامل');const amount=Number(prompt('المبلغ المراد تسويته. الرصيد المتبقي: '+formatNum(remain),remain.toFixed(3)));if(!(amount>0)||amount>remain+.0005)return alert('مبلغ التسوية غير صحيح');const date=prompt('تاريخ التحصيل / السداد YYYY-MM-DD',localDateString());if(!/^\d{4}-\d{2}-\d{2}$/.test(date||''))return alert('التاريخ غير صحيح');if(isAccountingPeriodLocked(date))return alert('التاريخ ضمن فترة مقفلة ولا يمكن التسوية إلا بواسطة المدير المالي');const cash=prompt('رمز حساب الصندوق / البنك','101');if(!window.state.accounts.some(a=>a.code===cash)||!cashAccountCodes().includes(cash))return alert('اختر حساب صندوق أو بنك صحيح');const details=inv.type==='customer'?[{accountCode:cash,debit:amount,credit:0,note:'تحصيل فاتورة '+inv.ref},{accountCode:inv.control,debit:0,credit:amount,note:'تسوية ذمم العميل '+inv.ref}]:[{accountCode:inv.control,debit:amount,credit:0,note:'سداد فاتورة '+inv.ref},{accountCode:cash,debit:0,credit:amount,note:'سداد للمورد '+inv.ref}];const jvId=nextDocumentId('JV-',window.state.entries);window.state.entries.push({id:jvId,date,description:(inv.type==='customer'?'تحصيل ':'سداد ')+inv.ref+' - '+inv.party,details});inv.paid=Number(inv.paid||0)+amount;inv.allocations=inv.allocations||[];inv.allocations.push({date,amount,journalId:jvId});addAudit('تسوية فاتورة',inv.type==='customer'?'عميل':'مورد',inv.ref,'المبلغ '+amount);if(saveState()){renderAgingInvoices();generateAging();alert('تم تسجيل التسوية والقيد المحاسبي.');}}
+        function settleAgingInvoice(id){if(!canWrite())return alert('ليست لديك صلاحية');const inv=(window.state.arApInvoices||[]).find(x=>x.id===id);if(!inv)return;const remain=Number(inv.amount)-Number(inv.paid||0);if(remain<=.0005)return alert('الفاتورة مسددة بالكامل');const amount=Number(prompt('المبلغ المراد تسويته. الرصيد المتبقي: '+formatNum(remain),remain.toFixed(3)));if(!(amount>0)||amount>remain+.0005)return alert('مبلغ التسوية غير صحيح');const date=prompt('تاريخ التحصيل / السداد YYYY-MM-DD',localDateString());if(!/^\d{4}-\d{2}-\d{2}$/.test(date||''))return alert('التاريخ غير صحيح');if(isAccountingPeriodLocked(date))return alert('التاريخ ضمن فترة مقفلة ولا يمكن التسوية إلا بواسطة المدير المالي');const defaultCash=cashAccountCodes()[0]||'';const cash=prompt('رمز حساب الصندوق / البنك',defaultCash);if(!window.state.accounts.some(a=>a.code===cash)||!cashAccountCodes().includes(cash))return alert('اختر حساب صندوق أو بنك صحيح');const details=inv.type==='customer'?[{accountCode:cash,debit:amount,credit:0,note:'تحصيل فاتورة '+inv.ref},{accountCode:inv.control,debit:0,credit:amount,note:'تسوية ذمم العميل '+inv.ref}]:[{accountCode:inv.control,debit:amount,credit:0,note:'سداد فاتورة '+inv.ref},{accountCode:cash,debit:0,credit:amount,note:'سداد للمورد '+inv.ref}];const jvId=nextDocumentId('JV-',window.state.entries);window.state.entries.push({id:jvId,date,description:(inv.type==='customer'?'تحصيل ':'سداد ')+inv.ref+' - '+inv.party,details});inv.paid=Number(inv.paid||0)+amount;inv.allocations=inv.allocations||[];inv.allocations.push({date,amount,journalId:jvId});addAudit('تسوية فاتورة',inv.type==='customer'?'عميل':'مورد',inv.ref,'المبلغ '+amount);if(saveState()){renderAgingInvoices();generateAging();alert('تم تسجيل التسوية والقيد المحاسبي.');}}
         function renderAgingInvoices(){const el=document.getElementById('agingInvoiceList');if(!el)return;const list=window.state.arApInvoices||[];el.innerHTML=`<div class="card border-0 shadow-sm"><div class="card-header fw-bold">الفواتير الآجلة والتسويات</div><div class="table-responsive"><table class="table table-bordered table-sm text-center mb-0"><thead class="table-dark-orange"><tr><th>النوع</th><th>رقم الفاتورة</th><th>الجهة</th><th>تاريخ الاستحقاق</th><th>القيمة</th><th>المسدد</th><th>المتبقي</th><th>إجراء</th></tr></thead><tbody>${list.map(x=>`<tr><td>${x.type==='customer'?'عميل':'مورد'}</td><td>${documentNumberLink(x.ref,x.ref)}</td><td>${x.party}</td><td>${formatDate(x.due)}</td><td>${formatNum(x.amount)}</td><td>${formatNum(x.paid||0)}</td><td class="fw-bold">${formatNum(x.amount-(x.paid||0))}</td><td>${x.amount-(x.paid||0)>.0005?`<button class="btn btn-sm btn-outline-success" onclick="settleAgingInvoice('${x.id}')">تسوية</button>`:'مسدد'}</td></tr>`).join('')||'<tr><td colspan="8">لا توجد فواتير آجلة</td></tr>'}</tbody></table></div></div>`;}
         function generateAging(){const asOf=document.getElementById('agingAsOf').value||localDateString(),today=new Date(asOf+'T00:00:00'),list=(window.state.arApInvoices||[]).filter(x=>x.date<=asOf);const group={customer:[],supplier:[]};list.forEach(x=>{const paidAsOf=(x.allocations||[]).filter(a=>a.date<=asOf).reduce((v,a)=>v+Number(a.amount||0),0);const remain=Number(x.amount)-paidAsOf;if(remain<=.0005)return;const rawDays=Math.floor((today-new Date(x.due+'T00:00:00'))/86400000);const idx=rawDays<0?0:rawDays<=30?1:rawDays<=60?2:rawDays<=90?3:rawDays<=120?4:5;const buckets=[0,0,0,0,0,0];buckets[idx]=remain;group[x.type].push({ref:x.ref,party:x.party,due:x.due,days:rawDays,buckets,total:remain});});const tbl=arr=>`<table class="table table-bordered table-sm"><thead><tr><th>الفاتورة</th><th>الجهة</th><th>الاستحقاق</th><th>أيام التأخير</th><th>غير مستحق</th><th>1-30</th><th>31-60</th><th>61-90</th><th>91-120</th><th>أكثر من 120</th><th>المتبقي</th></tr></thead><tbody>${arr.map(x=>`<tr><td>${documentNumberLink(x.ref,x.ref)}</td><td>${x.party}</td><td>${formatDate(x.due)}</td><td>${x.days<0?'لم يستحق':x.days}</td>${x.buckets.map(v=>`<td class="num-right">${formatNum(v)}</td>`).join('')}<td class="num-right fw-bold">${formatNum(x.total)}</td></tr>`).join('')||'<tr><td colspan="11">لا توجد أرصدة</td></tr>'}</tbody></table>`;document.getElementById('agingReport').innerHTML=`<div class="report-panel">${getHeaderHTML('أعمار الديون حسب تاريخ الاستحقاق','كما في '+formatDate(asOf))}<h6 class="text-primary">أرصدة العملاء</h6>${tbl(group.customer)}<h6 class="text-danger mt-3">أرصدة الموردين</h6>${tbl(group.supplier)}</div>`;renderAgingInvoices();}
         function fixedAssetAccountOptions(filterFn, selectedCode='') {
-            return window.state.accounts.filter(filterFn).sort((a,b)=>String(a.code).localeCompare(String(b.code),undefined,{numeric:true})).map(a=>`<option value="${a.code}" ${a.code===selectedCode?'selected':''}>${a.code} - ${a.name}</option>`).join('');
+            return window.state.accounts.filter(filterFn).sort(compareAccountCodes).map(a=>`<option value="${a.code}" ${a.code===selectedCode?'selected':''}>${a.code} - ${a.name}</option>`).join('');
         }
         function populateFixedAssetAccountSelects(asset=null) {
-            const assetOpts=fixedAssetAccountOptions(a=>a.type==='أصول',asset?.assetAccount||'108');
-            const expenseOpts=fixedAssetAccountOptions(a=>a.type==='مصروفات',asset?.expenseAccount||'605');
-            const allOpts=fixedAssetAccountOptions(()=>true,asset?.creditAccount||'102');
+            const findDefault=(fn)=>window.state.accounts.find(fn)?.code||'';
+            const assetDefault=asset?.assetAccount||findDefault(a=>a.groupCode==='000-005');
+            const accumDefault=asset?.accumAccount||findDefault(a=>a.groupCode==='000-006');
+            const expenseDefault=asset?.expenseAccount||findDefault(a=>a.type==='مصروفات'&&/إهلاك|اهلاك/.test(a.name));
+            const creditDefault=asset?.creditAccount||findDefault(a=>a.groupCode==='000-002')||findDefault(a=>a.groupCode==='000-001');
+            const assetOpts=fixedAssetAccountOptions(a=>a.type==='أصول',assetDefault);
+            const expenseOpts=fixedAssetAccountOptions(a=>a.type==='مصروفات',expenseDefault);
+            const allOpts=fixedAssetAccountOptions(()=>true,creditDefault);
             document.getElementById('faAssetAccount').innerHTML=assetOpts||'<option value="">لا توجد حسابات أصول</option>';
-            document.getElementById('faAccumAccount').innerHTML=fixedAssetAccountOptions(a=>a.type==='أصول',asset?.accumAccount||'112')||'<option value="">لا توجد حسابات أصول</option>';
+            document.getElementById('faAccumAccount').innerHTML=fixedAssetAccountOptions(a=>a.type==='أصول',accumDefault)||'<option value="">لا توجد حسابات أصول</option>';
             document.getElementById('faExpenseAccount').innerHTML=expenseOpts||'<option value="">لا توجد حسابات مصروفات</option>';
             document.getElementById('faCreditAccount').innerHTML=allOpts||'<option value="">لا توجد حسابات</option>';
         }
@@ -3310,14 +3753,14 @@
         }
 
         function exportBackup() {
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
-            const dlAnchor = document.createElement('a');
-            dlAnchor.setAttribute("href", dataStr);
-            dlAnchor.setAttribute("download", `Fondant_Choco_Backup_${localDateString()}.json`);
-            document.body.appendChild(dlAnchor);
-            dlAnchor.click();
-            dlAnchor.remove();
-            dismissBackupAlert();
+            try{
+                const snapshot={...window.state,accountGroups:window.state.accountGroups||DEFAULT_ACCOUNT_GROUPS};
+                const blob=new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json;charset=utf-8'});
+                const url=URL.createObjectURL(blob);const dlAnchor=document.createElement('a');
+                dlAnchor.href=url;dlAnchor.download=`Fondant_Choco_Acc_Backup_${localDateString()}.json`;
+                document.body.appendChild(dlAnchor);dlAnchor.click();dlAnchor.remove();
+                setTimeout(()=>URL.revokeObjectURL(url),1500);dismissBackupAlert();
+            }catch(err){console.error(err);alert('تعذر إنشاء النسخة الاحتياطية: '+(err.message||err));}
         }
 
         function importBackup(event) {
@@ -3335,6 +3778,7 @@
                     if (!confirm('سيتم استبدال البيانات الحالية بالنسخة المختارة وتحديث السحابة بها. هل تريد المتابعة؟')) return;
                     window.state = {
                         accounts: imported.accounts,
+                        accountGroups: Array.isArray(imported.accountGroups) ? imported.accountGroups : [...DEFAULT_ACCOUNT_GROUPS],
                         entries: imported.entries,
                         vouchers: imported.vouchers,
                         auditLog: Array.isArray(imported.auditLog) ? imported.auditLog : [],
@@ -3346,6 +3790,7 @@
                         bankRecItems: Array.isArray(imported.bankRecItems) ? imported.bankRecItems : [],
                         closedThrough: imported.closedThrough || ''
                     };
+                    migrateAccountsToGroupedCodes(window.state);
                     addAudit('استعادة نسخة احتياطية', 'النظام', file.name);
                     if (!saveState(true)) return;
                     alert('تم استعادة النسخة الاحتياطية وتحديث المزامنة بنجاح.');
