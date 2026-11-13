@@ -1,9 +1,10 @@
+
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>FC - Accounting</title>
+    <title>Fondant Choco - Accounting</title>
     
     <!-- Icons & Apple Meta -->
     <link rel="icon" href="https://i.postimg.cc/WbJw6TdV/Orig-LOGO-Square.jpg" type="image/jpeg">
@@ -1304,6 +1305,7 @@
             console.error('Firebase initialization / sync failed:', err);
             setBadge('danger', 'تعذر الاتصال بالسحابة');
             if (typeof window.updateLoginAvailability === 'function') window.updateLoginAvailability();
+            if (typeof window.restoreSessionAfterRemoteLoad === 'function') window.restoreSessionAfterRemoteLoad();
           };
           window.firebaseInitFailed = false;
           window.remoteDataLoaded = false;
@@ -1375,6 +1377,7 @@
                     bankRecItems: Array.isArray(data.bankRecItems) ? data.bankRecItems : [],
                     closedThrough: data.closedThrough || ''
                   };
+                  if (typeof repairAssetPostingLinks === 'function') repairAssetPostingLinks();
                   try { localStorage.setItem('fondant_choco_acc_state', JSON.stringify(window.state)); window.localCacheFound = true; } catch (e) { console.warn(e); }
                   window.isRemoteUpdate = false;
                 } else {
@@ -1389,6 +1392,7 @@
                 firstSnapshotHandled = true;
                 setBadge('success', 'متصل ومتزامن');
                 if (typeof refreshActiveUI === 'function') refreshActiveUI();
+                if (typeof window.restoreSessionAfterRemoteLoad === 'function') window.restoreSessionAfterRemoteLoad();
                 if (typeof window.updateLoginAvailability === 'function') window.updateLoginAvailability();
               } catch (err) {
                 window.isRemoteUpdate = false;
@@ -1407,6 +1411,7 @@
                 window.firebaseErrorMessage = 'استغرق تحميل البيانات وقتاً أطول من المتوقع. تحقق من الاتصال وقواعد Firestore ثم أعد المحاولة.';
                 setBadge('danger', 'انتهت مهلة الاتصال');
                 if (typeof window.updateLoginAvailability === 'function') window.updateLoginAvailability();
+                if (typeof window.restoreSessionAfterRemoteLoad === 'function') window.restoreSessionAfterRemoteLoad();
               }
             }, 20000);
             window.addEventListener('online', () => {
@@ -1514,6 +1519,31 @@
         function dashNum(value){return Math.abs(Number(value)||0)<0.0005?'<span class="zero-dash">-</span>':formatNum(value);}
         function matchesFilter(text,query){return !query||String(text??'').toLocaleLowerCase().includes(query.toLocaleLowerCase());}
 
+        function repairAssetPostingLinks(){
+            let repaired=false;
+            const assets=Array.isArray(window.state.assets)?window.state.assets:[];
+            const entries=Array.isArray(window.state.entries)?window.state.entries:[];
+            assets.forEach(asset=>{
+                const acquisition=entries.find(e=>e.assetId===asset.id||e.id===asset.acquisitionEntryId||e.description===('إثبات شراء أصل ثابت: '+asset.name));
+                if(acquisition&&(!acquisition.assetId||!asset.acquisitionEntryId)){
+                    acquisition.assetId=asset.id;asset.acquisitionEntryId=acquisition.id;repaired=true;
+                }
+            });
+            entries.forEach(entry=>{
+                if(entry.assetId&&entry.depreciationPeriod)return;
+                const match=String(entry.description||'').match(/^إهلاك شهري\s*-\s*(.+)\s*-\s*(\d{4}-\d{2})$/);
+                if(!match)return;
+                const asset=assets.find(a=>String(a.name||'').trim()===match[1].trim());
+                if(!asset)return;
+                entry.assetId=asset.id;entry.depreciationPeriod=match[2];repaired=true;
+            });
+            assets.forEach(asset=>{
+                const count=new Set(entries.filter(e=>e.assetId===asset.id&&e.depreciationPeriod).map(e=>e.depreciationPeriod)).size;
+                if(count>Number(asset.postedMonths||0)){asset.postedMonths=count;repaired=true;}
+            });
+            return repaired;
+        }
+
         document.addEventListener("DOMContentLoaded", () => {
             syncMobileNav();
             loadLocalCacheOnly();
@@ -1523,6 +1553,7 @@
             setupKeyboardNavigation();
             updateAccountsDatalist();
             refreshActiveUI();
+            if(window.remoteDataLoaded||(window.firebaseInitFailed&&window.localCacheFound))window.restoreSessionAfterRemoteLoad?.();
 
             setInterval(checkBackupReminder, 7200000);
             setTimeout(checkBackupReminder, 5000);
@@ -1601,6 +1632,7 @@
                     bankRecItems: Array.isArray(parsed.bankRecItems) ? parsed.bankRecItems : [],
                     closedThrough: parsed.closedThrough || ''
                 };
+                repairAssetPostingLinks();
             } catch (e) {
                 console.warn("Cache load skipped:", e);
             }
@@ -2121,9 +2153,11 @@
                 const id = document.getElementById('entryId').value.trim();
                 const date = document.getElementById('entryDate').value;
                 const description = document.getElementById('entryDescription').value.trim();
-                if (editId) { const old=window.state.entries.find(e=>e.id===editId); if(old&&window.state.closedThrough&&old.date<=window.state.closedThrough)return alert('لا يمكن تعديل قيد ضمن فترة مقفلة.'); }
+                const existingEntry = editId ? window.state.entries.find(e=>e.id===editId) : null;
+                if (editId && !existingEntry) return alert('القيد المراد تعديله غير موجود.');
+                if (existingEntry && isAccountingPeriodLocked(existingEntry.date) && !isFinanceManager()) return alert('لا يمكن تعديل قيد ضمن فترة مقفلة إلا بواسطة المدير المالي.');
                 if (!id || !date) return alert('يرجى إدخال رقم القيد والتاريخ.');
-                if (window.state.closedThrough && date <= window.state.closedThrough) return alert('الفترة مقفلة حتى '+window.state.closedThrough+' ولا يمكن تسجيل أو تعديل حركة خلالها.');
+                if (isAccountingPeriodLocked(date) && !(editId && isFinanceManager())) return alert('الفترة مقفلة حتى '+window.state.closedThrough+' ولا يمكن تسجيل أو تعديل حركة خلالها إلا بواسطة المدير المالي.');
 
                 const rows = document.querySelectorAll('#entryItemsTable tbody tr');
                 const details = [];
@@ -2157,12 +2191,13 @@
                 if (window.state.entries.some(e => e.id === id && e.id !== editId))
                     return alert('رقم القيد مستخدم بالفعل.');
 
-                const entryData = { id, date, description, details };
+                const entryData = { ...(existingEntry || {}), id, date, description, details };
                 if (editId) {
                     const idx = window.state.entries.findIndex(e => e.id === editId);
                     if (idx < 0) return alert('القيد المراد تعديله غير موجود.');
+                    const oldSummary = `${existingEntry.date} | ${existingEntry.description || ''} | مدين ${formatNum((existingEntry.details||[]).reduce((v,d)=>v+Number(d.debit||0),0))} | دائن ${formatNum((existingEntry.details||[]).reduce((v,d)=>v+Number(d.credit||0),0))}`;
                     window.state.entries[idx] = entryData;
-                    addAudit('تعديل', 'قيد يومية', id, description);
+                    addAudit(existingEntry.depreciationPeriod ? 'تعديل قيد إهلاك مرحل' : 'تعديل', 'قيد يومية', id, `قبل: ${oldSummary} | بعد: ${date} | ${description}`);
                 } else {
                     window.state.entries.push(entryData);
                     addAudit('إضافة', 'قيد يومية', id, description);
@@ -2178,7 +2213,7 @@
 
         function deleteJournalEntry(id) {
             if (!canWrite()) return alert('ليست لديك صلاحية.');
-            const oldEntry=window.state.entries.find(e=>e.id===id); if(oldEntry&&window.state.closedThrough&&oldEntry.date<=window.state.closedThrough)return alert('القيد ضمن فترة مقفلة.');
+            const oldEntry=window.state.entries.find(e=>e.id===id); if(oldEntry&&isAccountingPeriodLocked(oldEntry.date))return alert('القيد ضمن فترة مقفلة ولا يمكن حذفه إلا بواسطة المدير المالي.');
             if (confirm(`هل تريد حذف القيد ${id}؟`)) {
                 window.state.entries = window.state.entries.filter(e => e.id !== id);
                 addAudit('حذف', 'قيد يومية', id);
@@ -2264,11 +2299,13 @@
                 const method = document.getElementById('voucherPaymentMethod').value;
                 const checkNo=document.getElementById('voucherCheckNo').value.trim(),bankName=document.getElementById('voucherBankName').value.trim();
                 const notes = document.getElementById('voucherNotes').value.trim();
-                if (editId) { const old=window.state.vouchers.find(v=>v.id===editId); if(old&&window.state.closedThrough&&old.date<=window.state.closedThrough)return alert('لا يمكن تعديل سند ضمن فترة مقفلة.'); }
+                const existingVoucher = editId ? window.state.vouchers.find(v=>v.id===editId) : null;
+                if (editId && !existingVoucher) return alert('السند المراد تعديله غير موجود.');
+                if (existingVoucher && isAccountingPeriodLocked(existingVoucher.date) && !isFinanceManager()) return alert('لا يمكن تعديل سند ضمن فترة مقفلة إلا بواسطة المدير المالي.');
                 const costCenterId = document.getElementById('voucherCostCenter').value;
 
                 if (!['receipt', 'payment'].includes(type)) return alert('نوع السند غير صحيح.');
-                if (window.state.closedThrough && date <= window.state.closedThrough) return alert('الفترة مقفلة حتى '+window.state.closedThrough+' ولا يمكن تسجيل أو تعديل حركة خلالها.');
+                if (isAccountingPeriodLocked(date) && !(editId && isFinanceManager())) return alert('الفترة مقفلة حتى '+window.state.closedThrough+' ولا يمكن تسجيل أو تعديل حركة خلالها إلا بواسطة المدير المالي.');
                 if (!id || !date || !partyName || !Number.isFinite(amount) || amount <= 0)
                     return alert('يرجى إدخال التاريخ والجهة والمبلغ الصحيح.');
                 if (!window.state.accounts.some(a => a.code === mainAccount)) return alert('حساب الصندوق/البنك غير موجود في دليل الحسابات.');
@@ -2280,12 +2317,13 @@
                 if (window.state.vouchers.some(v => v.id === id && v.id !== editId))
                     return alert('رقم السند مستخدم بالفعل.');
 
-                const voucherData = { id, type, date, mainAccount, oppositeAccount, partyName, amount, method, notes, costCenterId, checkNo:method==='شيك'?checkNo:'', bankName:method==='شيك'?bankName:'' };
+                const voucherData = { ...(existingVoucher || {}), id, type, date, mainAccount, oppositeAccount, partyName, amount, method, notes, costCenterId, checkNo:method==='شيك'?checkNo:'', bankName:method==='شيك'?bankName:'' };
                 if (editId) {
                     const idx = window.state.vouchers.findIndex(v => v.id === editId);
                     if (idx < 0) return alert('السند المراد تعديله غير موجود.');
+                    const oldSummary = `${existingVoucher.date} | ${existingVoucher.partyName || ''} | ${formatNum(existingVoucher.amount)}`;
                     window.state.vouchers[idx] = voucherData;
-                    addAudit('تعديل', type === 'receipt' ? 'سند قبض' : 'سند صرف', id, partyName+' | '+method+(method==='شيك'?' | شيك '+checkNo+' | '+bankName:''));
+                    addAudit('تعديل', type === 'receipt' ? 'سند قبض' : 'سند صرف', id, `قبل: ${oldSummary} | بعد: ${date} | ${partyName} | ${formatNum(amount)} | ${method}`+(method==='شيك'?' | شيك '+checkNo+' | '+bankName:''));
                 } else {
                     window.state.vouchers.push(voucherData);
                     addAudit('إضافة', type === 'receipt' ? 'سند قبض' : 'سند صرف', id, partyName+' | '+method+(method==='شيك'?' | شيك '+checkNo+' | '+bankName:''));
@@ -2301,7 +2339,7 @@
 
         function deleteVoucher(id) {
             if (!canWrite()) return alert('ليست لديك صلاحية.');
-            const oldVoucher=window.state.vouchers.find(v=>v.id===id); if(oldVoucher&&window.state.closedThrough&&oldVoucher.date<=window.state.closedThrough)return alert('السند ضمن فترة مقفلة.');
+            const oldVoucher=window.state.vouchers.find(v=>v.id===id); if(oldVoucher&&isAccountingPeriodLocked(oldVoucher.date))return alert('السند ضمن فترة مقفلة ولا يمكن حذفه إلا بواسطة المدير المالي.');
             if (confirm(`هل تريد حذف السند ${id}؟`)) {
                 window.state.vouchers = window.state.vouchers.filter(v => v.id !== id);
                 addAudit('حذف', 'سند', id);
@@ -3027,8 +3065,11 @@
             }
         }
 
+        function isFinanceManager(){return !!currentUser&&currentUser.role==='admin';}
         function canWrite(){return !!currentUser&&['admin','accountant'].includes(currentUser.role);}
-        function closeAccountingPeriod(){if(currentUser?.role!=='admin')return alert('إقفال الفترات للمدير المالي فقط');const d=document.getElementById('closedThroughInput').value;if(!d)return alert('حدد تاريخ الإقفال');if(window.state.closedThrough&&d<window.state.closedThrough)return alert('لا يمكن تقليل تاريخ الإقفال؛ استخدم إلغاء الإقفال أولاً');if(confirm('سيتم منع إضافة أو تعديل أو حذف الحركات بتاريخ '+d+' وما قبله. هل تعتمد الإقفال؟')){window.state.closedThrough=d;addAudit('إقفال فترة','فترة محاسبية',d);saveState();updateClosedThroughLabel();alert('تم اعتماد الإقفال.');}}
+        // Period closing protects ordinary users; the Finance Manager can correct any prior posting.
+        function isAccountingPeriodLocked(date){return !!date&&!!window.state.closedThrough&&date<=window.state.closedThrough;}
+        function closeAccountingPeriod(){if(currentUser?.role!=='admin')return alert('إقفال الفترات للمدير المالي فقط');const d=document.getElementById('closedThroughInput').value;if(!d)return alert('حدد تاريخ الإقفال');if(window.state.closedThrough&&d<window.state.closedThrough)return alert('لا يمكن تقليل تاريخ الإقفال؛ استخدم إلغاء الإقفال أولاً');if(confirm('سيتم منع المستخدمين الآخرين من إضافة أو تعديل أو حذف الحركات بتاريخ '+d+' وما قبله. يحتفظ المدير المالي بصلاحية التصحيح عند الحاجة. هل تعتمد الإقفال؟')){window.state.closedThrough=d;addAudit('إقفال فترة','فترة محاسبية',d);saveState();updateClosedThroughLabel();alert('تم اعتماد الإقفال.');}}
         function reopenAccountingPeriod(){if(currentUser?.role!=='admin')return alert('للمدير المالي فقط');if(confirm('إلغاء تاريخ الإقفال والسماح بالتعديل على الفترات السابقة؟')){window.state.closedThrough='';document.getElementById('closedThroughInput').value='';addAudit('إلغاء إقفال','فترة محاسبية','');saveState();updateClosedThroughLabel();}}
         function updateClosedThroughLabel(){const e=document.getElementById('closedThroughLabel');if(e)e.textContent=window.state.closedThrough?'الفترات مقفلة حتى: '+window.state.closedThrough:'لا توجد فترة مقفلة حالياً';}
         function populateBankAccounts(){const el=document.getElementById('bankRecAccount');if(!el)return;const old=el.value;el.innerHTML=window.state.accounts.filter(a=>isCashBankAccount(a)&&/بنك|bank/i.test(a.name+' '+(a.subType||''))).map(a=>`<option value="${a.code}">${a.name}</option>`).join('');if(!el.options.length)el.innerHTML='<option value="">لا توجد حسابات بنكية</option>';el.value=old;const d=document.getElementById('bankRecDate');if(d&&!d.value)d.value=localDateString();}
@@ -3040,6 +3081,36 @@
             {username:'auditor',name:'المراجع',role:'viewer',password:'123',mustChange:false}
         ];}
         let currentUser=null;
+        const TAB_SESSION_KEY='fondant_choco_tab_session_v1';
+        function saveTabSession(username){try{sessionStorage.setItem(TAB_SESSION_KEY,JSON.stringify({username:String(username||''),createdAt:Date.now()}));}catch(e){console.warn('Tab session could not be saved:',e);}}
+        function clearTabSession(){try{sessionStorage.removeItem(TAB_SESSION_KEY);}catch(e){console.warn('Tab session could not be cleared:',e);}}
+        function showAuthenticatedUser(user, restored=false){
+            if(!user)return false;
+            currentUser=user;
+            const screen=document.getElementById('loginScreen');if(screen)screen.style.display='none';
+            const label=document.getElementById('currentUserLabel');if(label)label.textContent=(user.name||user.username)+' ('+roleName(user.role)+')';
+            applyRoleVisibility();
+            if(restored)console.info('Restored the authenticated user for this browser tab.');
+            return true;
+        }
+        function restoreTabSession(){
+            try{
+                const raw=sessionStorage.getItem(TAB_SESSION_KEY);if(!raw)return false;
+                const saved=JSON.parse(raw);if(!saved||!saved.username)return false;
+                const user=(window.state.users||[]).find(u=>u.username===saved.username&&u.active!==false);
+                if(!user){clearTabSession();return false;}
+                return showAuthenticatedUser(user,true);
+            }catch(e){console.warn('Stored tab session is invalid:',e);clearTabSession();return false;}
+        }
+        window.restoreSessionAfterRemoteLoad=function(){
+            if(!window.remoteDataLoaded&&!(window.firebaseInitFailed&&window.localCacheFound))return false;
+            if(currentUser){
+                const fresh=(window.state.users||[]).find(u=>u.username===currentUser.username&&u.active!==false);
+                if(!fresh){currentUser=null;clearTabSession();const screen=document.getElementById('loginScreen');if(screen)screen.style.display='flex';return false;}
+                currentUser=fresh;const label=document.getElementById('currentUserLabel');if(label)label.textContent=(fresh.name||fresh.username)+' ('+roleName(fresh.role)+')';applyRoleVisibility();return true;
+            }
+            return restoreTabSession();
+        };
         function updateLoginAvailability() {
             const button = document.getElementById('loginButton');
             const status = document.getElementById('loginConnectionStatus');
@@ -3076,24 +3147,29 @@
             const u=document.getElementById('loginUsername').value.trim(),p=document.getElementById('loginPassword').value;
             const found=(window.state.users||[]).find(x=>x.username===u&&x.password===p&&x.active!==false);
             if(!found){document.getElementById('loginError').textContent='اسم المستخدم أو كلمة المرور غير صحيحة';return;}
-            currentUser=found;
-            document.getElementById('loginScreen').style.display='none';
-            document.getElementById('currentUserLabel').textContent=found.name+' ('+roleName(found.role)+')';
-            addAudit('تسجيل دخول','مستخدم',u);saveState();applyRoleVisibility();
+            saveTabSession(found.username);
+            showAuthenticatedUser(found,false);
+            addAudit('تسجيل دخول','مستخدم',u);saveState();
         }
-        function logout(){if(currentUser)addAudit('تسجيل خروج','مستخدم',currentUser.username);saveState();currentUser=null;document.getElementById('loginPassword').value='';document.getElementById('loginScreen').style.display='flex';}
+        function logout(){
+            if(currentUser)addAudit('تسجيل خروج','مستخدم',currentUser.username);
+            saveState();clearTabSession();currentUser=null;
+            const pass=document.getElementById('loginPassword');if(pass)pass.value='';
+            const user=document.getElementById('loginUsername');if(user)user.value='';
+            const screen=document.getElementById('loginScreen');if(screen)screen.style.display='flex';
+        }
         function roleName(r){return r==='admin'?'المدير المالي':r==='accountant'?'محاسب':'مراجع';}
         function hasPermission(section){if(!currentUser)return false;if(currentUser.role==='admin')return true;if(currentUser.role==='viewer')return ['dashboard','accountStatement','trialBalanceMovement','trialBalanceBalance','tradingAccount','incomeStatement','balanceSheet','cashFlow','aging','bankReconciliation','comparative','costCenters','auditLog'].includes(section);return section!=='users'&&section!=='settings'&&section!=='auditLog';}
         function applyRoleVisibility(){
             document.querySelectorAll('#mainNav .nav-link, #mobileNavList .nav-link').forEach(a=>{const m=a.getAttribute('onclick')||'',id=(m.match(/showSection\('([^']+)/)||[])[1];if(a.parentElement)a.parentElement.style.display=id&&!hasPermission(id)?'none':'';});
             updateNavGroupVisibility(document.getElementById('mainNav')); updateNavGroupVisibility(document.getElementById('mobileNavList'));
             document.querySelectorAll('#mobileBottomNav .mob-nav-btn[data-sec]').forEach(btn=>{const sec=btn.getAttribute('data-sec');if(sec!=='more')btn.style.display=!hasPermission(sec)?'none':'';});
-            if(currentUser&&currentUser.role==='viewer'){document.querySelectorAll('button[onclick*="openAccountModal"],button[onclick*="openEntryModal"],button[onclick*="openVoucherModal"],button[onclick*="addFixedAsset"],button[onclick*="postDepreciation"]').forEach(b=>b.style.display='none');}
+            document.querySelectorAll('button[onclick*="openAccountModal"],button[onclick*="openEntryModal"],button[onclick*="openVoucherModal"],button[onclick*="addFixedAsset"],button[onclick*="postDepreciation"]').forEach(b=>{if(currentUser&&currentUser.role==='viewer')b.style.display='none';else b.style.display='';});
         }
         function renderUsers(){const tb=document.getElementById('usersTableBody');if(!tb)return;tb.innerHTML=(window.state.users||[]).map(u=>`<tr><td>${u.username}</td><td>${u.name}</td><td>${roleName(u.role)}</td><td><button class="btn btn-sm btn-outline-info" onclick="editUserName('${u.username}')">تعديل الاسم</button></td><td><button class="btn btn-sm btn-outline-primary" onclick="adminResetPassword('${u.username}')">إعادة تعيين إلى 123</button> <button class="btn btn-sm btn-outline-danger" onclick="toggleUser('${u.username}')">${u.active===false?'تفعيل':'تعطيل'}</button> <button class="btn btn-sm btn-danger" onclick="deleteUser('${u.username}')">حذف</button></td></tr>`).join('');}
         function editUserName(username){if(currentUser?.role!=='admin')return alert('هذه العملية للمدير المالي فقط');const u=window.state.users.find(x=>x.username===username);if(!u)return;const name=prompt('الاسم الظاهر للمستخدم:',u.name||username);if(name===null)return;if(!name.trim())return alert('الاسم لا يمكن أن يكون فارغاً');const old=u.name;u.name=name.trim();addAudit('تعديل اسم مستخدم','مستخدم',username,old+' ← '+u.name);saveState();renderUsers();if(currentUser?.username===username)document.getElementById('currentUserLabel').textContent=u.name+' ('+roleName(u.role)+')';}
         function createUser(){if(currentUser?.role!=='admin')return alert('هذه العملية للمدير المالي فقط');const username=prompt('اسم المستخدم الجديد:');if(!username)return;if((window.state.users||[]).some(u=>u.username===username.trim()))return alert('اسم المستخدم موجود');const name=prompt('الاسم الظاهر:')||username;const role=prompt('الدور: admin أو accountant أو viewer','accountant');if(!['admin','accountant','viewer'].includes(role))return alert('الدور غير صحيح');window.state.users.push({username:username.trim(),name,role,password:'123',mustChange:false,active:true});addAudit('إضافة مستخدم','مستخدم',username,role);saveState();renderUsers();alert('تم إنشاء المستخدم وكلمة مروره الأولية 123');}
-        function adminResetPassword(username){if(currentUser?.role!=='admin')return alert('غير مصرح');const u=window.state.users.find(x=>x.username===username);if(!u)return;u.password='123';u.mustChange=false;addAudit('إعادة تعيين كلمة مرور','مستخدم',username);saveState();alert('تم تعيين كلمة المرور إلى 123');}
+        function adminResetPassword(username){if(currentUser?.role!=='admin')return alert('غير مصرح');const u=window.state.users.find(x=>x.username===username);if(!u)return;u.password='123';u.mustChange=false;addAudit('إعادة تعيين كلمة مرور','مستخدم',username);if(currentUser?.username===username){clearTabSession();currentUser=null;document.getElementById('loginScreen').style.display='flex';}saveState();alert('تم تعيين كلمة المرور إلى 123. يلزم تسجيل الدخول مجدداً إذا كانت الجلسة الحالية للمستخدم نفسه.');}
         function toggleUser(username){if(currentUser?.role!=='admin')return alert('غير مصرح');if(username===currentUser.username)return alert('لا يمكن تعطيل المستخدم الحالي');const u=window.state.users.find(x=>x.username===username);u.active=u.active===false?true:false;addAudit(u.active?'تفعيل مستخدم':'تعطيل مستخدم','مستخدم',username);saveState();renderUsers();}
         function deleteUser(username){if(currentUser?.role!=='admin')return alert('حذف المستخدمين للمدير المالي فقط');if(username===currentUser.username)return alert('لا يمكن حذف المستخدم الذي سجل الدخول حالياً');const u=(window.state.users||[]).find(x=>x.username===username);if(!u)return;const hasHistory=(window.state.auditLog||[]).some(log=>String(log.user||'')===username);if(hasHistory)return alert('لا يمكن حذف هذا المستخدم لوجود حركات مسجلة باسمه في سجل العمليات. يمكنك تعطيله بدلاً من ذلك.');if(u.role==='admin'&&(window.state.users||[]).filter(x=>x.role==='admin').length<=1)return alert('لا يمكن حذف آخر مستخدم بصلاحية المدير المالي.');if(!confirm('هل تريد حذف المستخدم '+(u.name||username)+'؟'))return;window.state.users=window.state.users.filter(x=>x.username!==username);addAudit('حذف مستخدم','مستخدم',username,'لا توجد حركات سابقة لهذا المستخدم في سجل العمليات');if(saveState())renderUsers();}
         function changeOwnPasswordPrompt(){if(!currentUser)return;const old=prompt('أدخل كلمة المرور الحالية:');if(old===null)return;const nw=prompt('أدخل كلمة المرور الجديدة (6 أحرف على الأقل):');if(nw===null)return;if(old!==currentUser.password)return alert('كلمة المرور الحالية غير صحيحة');if(nw.length<6)return alert('كلمة المرور الجديدة يجب ألا تقل عن 6 أحرف');currentUser.password=nw;currentUser.mustChange=false;addAudit('تغيير كلمة المرور','مستخدم',currentUser.username);saveState();alert('تم تغيير كلمة المرور بنجاح');}
@@ -3111,8 +3187,8 @@
             window.state.entries.filter(e=>e.date>=start&&e.date<=end).forEach(e=>{const cashLines=e.details.filter(d=>cashSet.has(d.accountCode));cashLines.forEach(cl=>{const cashDelta=Number(cl.debit||0)-Number(cl.credit||0);if(Math.abs(cashDelta)<.0005)return;const counterpart=e.details.filter(d=>!cashSet.has(d.accountCode));if(!counterpart.length)return;const weight=counterpart.reduce((s,d)=>s+Number(d.debit||0)+Number(d.credit||0),0)||1;counterpart.forEach(d=>{const share=Math.abs(cashDelta)*(Number(d.debit||0)+Number(d.credit||0))/weight;add(cashClassForAccount(d.accountCode),Math.sign(cashDelta)*share);});});});
             window.state.vouchers.filter(v=>v.date>=start&&v.date<=end).forEach(v=>{const cashCode=v.type==='receipt'?v.mainAccount:v.mainAccount;if(!cashSet.has(cashCode))return;const other=v.oppositeAccount;if(cashSet.has(other))return;const delta=v.type==='receipt'?Number(v.amount):-Number(v.amount);add(cashClassForAccount(other),delta);});
             const names={operating:'الأنشطة التشغيلية',investing:'الأنشطة الاستثمارية',financing:'الأنشطة التمويلية'};let totalIn=0,totalOut=0,body='';Object.keys(groups).forEach(k=>{const g=groups[k];totalIn+=g.in;totalOut+=g.out;body+=`<tr class="table-light fw-bold"><td colspan="3">${names[k]}</td></tr><tr><td>متحصلات نقدية</td><td class="num-right">${formatNum(g.in)}</td><td></td></tr><tr><td>مدفوعات نقدية</td><td></td><td class="num-right">${formatNum(g.out)}</td></tr><tr><td>صافي ${names[k]}</td><td colspan="2" class="num-right fw-bold">${formatNum(g.in-g.out)}</td></tr>`;});document.getElementById('cashFlowReport').innerHTML=`<div class="report-panel">${getHeaderHTML('قائمة التدفقات النقدية المصنفة',formatDate(start)+' إلى '+formatDate(end))}<table class="table table-bordered"><thead><tr><th>البيان</th><th>التدفقات الداخلة</th><th>التدفقات الخارجة</th></tr></thead><tbody>${body}</tbody><tfoot><tr class="table-primary fw-bold"><td>صافي التغير في النقدية</td><td colspan="2" class="num-right">${formatNum(totalIn-totalOut)}</td></tr></tfoot></table></div>`;}
-        function saveAgingInvoice(){if(!canWrite())return alert('ليست لديك صلاحية');const type=document.getElementById('ageInvType').value,ref=document.getElementById('ageInvRef').value.trim(),party=document.getElementById('ageInvParty').value.trim(),date=document.getElementById('ageInvDate').value,due=document.getElementById('ageInvDue').value,amount=Number(document.getElementById('ageInvAmount').value),control=extractAccountCode(document.getElementById('ageInvControl').value),offset=extractAccountCode(document.getElementById('ageInvOffset').value);if(!ref||!party||!date||!due||due<date||!(amount>0)||!Number.isFinite(amount))return alert('أدخل بيانات الفاتورة وتواريخها ومبلغاً صحيحاً');if(window.state.closedThrough&&date<=window.state.closedThrough)return alert('تاريخ الفاتورة ضمن فترة مقفلة');if(!window.state.accounts.some(a=>a.code===control)||!window.state.accounts.some(a=>a.code===offset)||control===offset)return alert('تحقق من حساب الذمم والحساب المقابل');if((window.state.arApInvoices||[]).some(x=>x.ref===ref&&x.type===type))return alert('رقم الفاتورة مسجل مسبقاً لهذا النوع');const ctrl= getAccountByCode(control);if(type==='customer'&&ctrl.type!=='أصول')return alert('اختر حساب ذمم العملاء من نوع أصول');if(type==='supplier'&&ctrl.type!=='خصومات')return alert('اختر حساب ذمم الموردين من نوع خصومات');const id='INV-'+Date.now(),jvId=nextDocumentId('JV-',window.state.entries);const details=type==='customer'?[{accountCode:control,debit:amount,credit:0,note:'فاتورة عميل '+ref},{accountCode:offset,debit:0,credit:amount,note:'إيراد الفاتورة '+ref}]:[{accountCode:offset,debit:amount,credit:0,note:'فاتورة مورد '+ref},{accountCode:control,debit:0,credit:amount,note:'ذمم المورد '+ref}];window.state.entries.push({id:jvId,date,description:(type==='customer'?'إثبات فاتورة عميل ':'إثبات فاتورة مورد ')+ref+' - '+party,details});window.state.arApInvoices=window.state.arApInvoices||[];window.state.arApInvoices.push({id,type,ref,party,date,due,amount,paid:0,control,offset,journalId:jvId,allocations:[]});addAudit('تسجيل فاتورة آجلة',type==='customer'?'عميل':'مورد',ref,party+' - '+amount);if(saveState()){document.getElementById('ageInvRef').value='';document.getElementById('ageInvParty').value='';document.getElementById('ageInvAmount').value='';renderAgingInvoices();generateAging();alert('تم تسجيل الفاتورة وإنشاء القيد المحاسبي.');}}
-        function settleAgingInvoice(id){if(!canWrite())return alert('ليست لديك صلاحية');const inv=(window.state.arApInvoices||[]).find(x=>x.id===id);if(!inv)return;const remain=Number(inv.amount)-Number(inv.paid||0);if(remain<=.0005)return alert('الفاتورة مسددة بالكامل');const amount=Number(prompt('المبلغ المراد تسويته. الرصيد المتبقي: '+formatNum(remain),remain.toFixed(3)));if(!(amount>0)||amount>remain+.0005)return alert('مبلغ التسوية غير صحيح');const date=prompt('تاريخ التحصيل / السداد YYYY-MM-DD',localDateString());if(!/^\d{4}-\d{2}-\d{2}$/.test(date||''))return alert('التاريخ غير صحيح');if(window.state.closedThrough&&date<=window.state.closedThrough)return alert('التاريخ ضمن فترة مقفلة');const cash=prompt('رمز حساب الصندوق / البنك','101');if(!window.state.accounts.some(a=>a.code===cash)||!cashAccountCodes().includes(cash))return alert('اختر حساب صندوق أو بنك صحيح');const details=inv.type==='customer'?[{accountCode:cash,debit:amount,credit:0,note:'تحصيل فاتورة '+inv.ref},{accountCode:inv.control,debit:0,credit:amount,note:'تسوية ذمم العميل '+inv.ref}]:[{accountCode:inv.control,debit:amount,credit:0,note:'سداد فاتورة '+inv.ref},{accountCode:cash,debit:0,credit:amount,note:'سداد للمورد '+inv.ref}];const jvId=nextDocumentId('JV-',window.state.entries);window.state.entries.push({id:jvId,date,description:(inv.type==='customer'?'تحصيل ':'سداد ')+inv.ref+' - '+inv.party,details});inv.paid=Number(inv.paid||0)+amount;inv.allocations=inv.allocations||[];inv.allocations.push({date,amount,journalId:jvId});addAudit('تسوية فاتورة',inv.type==='customer'?'عميل':'مورد',inv.ref,'المبلغ '+amount);if(saveState()){renderAgingInvoices();generateAging();alert('تم تسجيل التسوية والقيد المحاسبي.');}}
+        function saveAgingInvoice(){if(!canWrite())return alert('ليست لديك صلاحية');const type=document.getElementById('ageInvType').value,ref=document.getElementById('ageInvRef').value.trim(),party=document.getElementById('ageInvParty').value.trim(),date=document.getElementById('ageInvDate').value,due=document.getElementById('ageInvDue').value,amount=Number(document.getElementById('ageInvAmount').value),control=extractAccountCode(document.getElementById('ageInvControl').value),offset=extractAccountCode(document.getElementById('ageInvOffset').value);if(!ref||!party||!date||!due||due<date||!(amount>0)||!Number.isFinite(amount))return alert('أدخل بيانات الفاتورة وتواريخها ومبلغاً صحيحاً');if(isAccountingPeriodLocked(date))return alert('تاريخ الفاتورة ضمن فترة مقفلة ولا يمكن الإضافة إلا بواسطة المدير المالي.');if(!window.state.accounts.some(a=>a.code===control)||!window.state.accounts.some(a=>a.code===offset)||control===offset)return alert('تحقق من حساب الذمم والحساب المقابل');if((window.state.arApInvoices||[]).some(x=>x.ref===ref&&x.type===type))return alert('رقم الفاتورة مسجل مسبقاً لهذا النوع');const ctrl= getAccountByCode(control);if(type==='customer'&&ctrl.type!=='أصول')return alert('اختر حساب ذمم العملاء من نوع أصول');if(type==='supplier'&&ctrl.type!=='خصومات')return alert('اختر حساب ذمم الموردين من نوع خصومات');const id='INV-'+Date.now(),jvId=nextDocumentId('JV-',window.state.entries);const details=type==='customer'?[{accountCode:control,debit:amount,credit:0,note:'فاتورة عميل '+ref},{accountCode:offset,debit:0,credit:amount,note:'إيراد الفاتورة '+ref}]:[{accountCode:offset,debit:amount,credit:0,note:'فاتورة مورد '+ref},{accountCode:control,debit:0,credit:amount,note:'ذمم المورد '+ref}];window.state.entries.push({id:jvId,date,description:(type==='customer'?'إثبات فاتورة عميل ':'إثبات فاتورة مورد ')+ref+' - '+party,details});window.state.arApInvoices=window.state.arApInvoices||[];window.state.arApInvoices.push({id,type,ref,party,date,due,amount,paid:0,control,offset,journalId:jvId,allocations:[]});addAudit('تسجيل فاتورة آجلة',type==='customer'?'عميل':'مورد',ref,party+' - '+amount);if(saveState()){document.getElementById('ageInvRef').value='';document.getElementById('ageInvParty').value='';document.getElementById('ageInvAmount').value='';renderAgingInvoices();generateAging();alert('تم تسجيل الفاتورة وإنشاء القيد المحاسبي.');}}
+        function settleAgingInvoice(id){if(!canWrite())return alert('ليست لديك صلاحية');const inv=(window.state.arApInvoices||[]).find(x=>x.id===id);if(!inv)return;const remain=Number(inv.amount)-Number(inv.paid||0);if(remain<=.0005)return alert('الفاتورة مسددة بالكامل');const amount=Number(prompt('المبلغ المراد تسويته. الرصيد المتبقي: '+formatNum(remain),remain.toFixed(3)));if(!(amount>0)||amount>remain+.0005)return alert('مبلغ التسوية غير صحيح');const date=prompt('تاريخ التحصيل / السداد YYYY-MM-DD',localDateString());if(!/^\d{4}-\d{2}-\d{2}$/.test(date||''))return alert('التاريخ غير صحيح');if(isAccountingPeriodLocked(date))return alert('التاريخ ضمن فترة مقفلة ولا يمكن التسوية إلا بواسطة المدير المالي');const cash=prompt('رمز حساب الصندوق / البنك','101');if(!window.state.accounts.some(a=>a.code===cash)||!cashAccountCodes().includes(cash))return alert('اختر حساب صندوق أو بنك صحيح');const details=inv.type==='customer'?[{accountCode:cash,debit:amount,credit:0,note:'تحصيل فاتورة '+inv.ref},{accountCode:inv.control,debit:0,credit:amount,note:'تسوية ذمم العميل '+inv.ref}]:[{accountCode:inv.control,debit:amount,credit:0,note:'سداد فاتورة '+inv.ref},{accountCode:cash,debit:0,credit:amount,note:'سداد للمورد '+inv.ref}];const jvId=nextDocumentId('JV-',window.state.entries);window.state.entries.push({id:jvId,date,description:(inv.type==='customer'?'تحصيل ':'سداد ')+inv.ref+' - '+inv.party,details});inv.paid=Number(inv.paid||0)+amount;inv.allocations=inv.allocations||[];inv.allocations.push({date,amount,journalId:jvId});addAudit('تسوية فاتورة',inv.type==='customer'?'عميل':'مورد',inv.ref,'المبلغ '+amount);if(saveState()){renderAgingInvoices();generateAging();alert('تم تسجيل التسوية والقيد المحاسبي.');}}
         function renderAgingInvoices(){const el=document.getElementById('agingInvoiceList');if(!el)return;const list=window.state.arApInvoices||[];el.innerHTML=`<div class="card border-0 shadow-sm"><div class="card-header fw-bold">الفواتير الآجلة والتسويات</div><div class="table-responsive"><table class="table table-bordered table-sm text-center mb-0"><thead class="table-dark-orange"><tr><th>النوع</th><th>رقم الفاتورة</th><th>الجهة</th><th>تاريخ الاستحقاق</th><th>القيمة</th><th>المسدد</th><th>المتبقي</th><th>إجراء</th></tr></thead><tbody>${list.map(x=>`<tr><td>${x.type==='customer'?'عميل':'مورد'}</td><td>${documentNumberLink(x.ref,x.ref)}</td><td>${x.party}</td><td>${formatDate(x.due)}</td><td>${formatNum(x.amount)}</td><td>${formatNum(x.paid||0)}</td><td class="fw-bold">${formatNum(x.amount-(x.paid||0))}</td><td>${x.amount-(x.paid||0)>.0005?`<button class="btn btn-sm btn-outline-success" onclick="settleAgingInvoice('${x.id}')">تسوية</button>`:'مسدد'}</td></tr>`).join('')||'<tr><td colspan="8">لا توجد فواتير آجلة</td></tr>'}</tbody></table></div></div>`;}
         function generateAging(){const asOf=document.getElementById('agingAsOf').value||localDateString(),today=new Date(asOf+'T00:00:00'),list=(window.state.arApInvoices||[]).filter(x=>x.date<=asOf);const group={customer:[],supplier:[]};list.forEach(x=>{const paidAsOf=(x.allocations||[]).filter(a=>a.date<=asOf).reduce((v,a)=>v+Number(a.amount||0),0);const remain=Number(x.amount)-paidAsOf;if(remain<=.0005)return;const rawDays=Math.floor((today-new Date(x.due+'T00:00:00'))/86400000);const idx=rawDays<0?0:rawDays<=30?1:rawDays<=60?2:rawDays<=90?3:rawDays<=120?4:5;const buckets=[0,0,0,0,0,0];buckets[idx]=remain;group[x.type].push({ref:x.ref,party:x.party,due:x.due,days:rawDays,buckets,total:remain});});const tbl=arr=>`<table class="table table-bordered table-sm"><thead><tr><th>الفاتورة</th><th>الجهة</th><th>الاستحقاق</th><th>أيام التأخير</th><th>غير مستحق</th><th>1-30</th><th>31-60</th><th>61-90</th><th>91-120</th><th>أكثر من 120</th><th>المتبقي</th></tr></thead><tbody>${arr.map(x=>`<tr><td>${documentNumberLink(x.ref,x.ref)}</td><td>${x.party}</td><td>${formatDate(x.due)}</td><td>${x.days<0?'لم يستحق':x.days}</td>${x.buckets.map(v=>`<td class="num-right">${formatNum(v)}</td>`).join('')}<td class="num-right fw-bold">${formatNum(x.total)}</td></tr>`).join('')||'<tr><td colspan="11">لا توجد أرصدة</td></tr>'}</tbody></table>`;document.getElementById('agingReport').innerHTML=`<div class="report-panel">${getHeaderHTML('أعمار الديون حسب تاريخ الاستحقاق','كما في '+formatDate(asOf))}<h6 class="text-primary">أرصدة العملاء</h6>${tbl(group.customer)}<h6 class="text-danger mt-3">أرصدة الموردين</h6>${tbl(group.supplier)}</div>`;renderAgingInvoices();}
         function fixedAssetAccountOptions(filterFn, selectedCode='') {
@@ -3139,38 +3215,62 @@
             document.getElementById('faCost').value=asset?.cost??'';
             document.getElementById('faDate').value=asset?.date||localDateString();
             populateFixedAssetAccountSelects(asset);
-            if(asset&&Number(asset.postedMonths||0)>0){
-                ['faName','faCost','faDate','faAssetAccount','faAccumAccount','faExpenseAccount','faCreditAccount'].forEach(id=>document.getElementById(id).disabled=true);
-                document.querySelector('#fixedAssetModal .modal-footer button.btn-primary').disabled=true;
-            }else{
-                ['faName','faCost','faDate','faAssetAccount','faAccumAccount','faExpenseAccount','faCreditAccount'].forEach(id=>document.getElementById(id).disabled=false);
-                document.querySelector('#fixedAssetModal .modal-footer button.btn-primary').disabled=false;
-            }
+            const posted=asset&&Number(asset.postedMonths||0)>0;
+            const canEditPosted=posted&&isFinanceManager();
+            const lockPosted=posted&&!isFinanceManager();
+            ['faName','faCost','faDate','faAssetAccount','faAccumAccount','faExpenseAccount','faCreditAccount'].forEach(id=>document.getElementById(id).disabled=lockPosted);
+            const saveBtn=document.querySelector('#fixedAssetModal .modal-footer button.btn-primary');if(saveBtn)saveBtn.disabled=lockPosted;
+            const notice=document.querySelector('#fixedAssetModal .modal-body .alert');
+            if(notice)notice.textContent=canEditPosted
+                ?'تنبيه للمدير المالي: هذا الأصل له إهلاك مرحّل. عند تعديل التكلفة أو تاريخ الاستخدام أو الحسابات سيحدّث البرنامج قيد الشراء ويعيد احتساب جميع قيود الإهلاك المرتبطة به مع الاحتفاظ بأرقام القيود وسجل التعديلات.'
+                :'سيُنشئ البرنامج قيد إثبات تكلفة الأصل تلقائياً عند الحفظ. لا يتم إنشاء قيد جديد عند تعديل أصل غير مُهلك؛ بل يتم تحديث قيد الإثبات الأصلي المرتبط به.';
             modal.show();
         }
         function findAssetAcquisitionEntry(asset){
             return window.state.entries.find(e=>e.assetId===asset.id||e.id===asset.acquisitionEntryId||e.description===('إثبات شراء أصل ثابت: '+asset.name));
+        }
+        function rebuildPostedDepreciationForAsset(asset){
+            const linked=(window.state.entries||[]).filter(e=>e.assetId===asset.id&&e.depreciationPeriod).sort((a,b)=>String(a.depreciationPeriod).localeCompare(String(b.depreciationPeriod)));
+            const start=new Date(asset.date+'T00:00:00');let cumulative=0,kept=0;
+            linked.forEach((entry,index)=>{
+                const dt=new Date(start.getFullYear(),start.getMonth()+index,1);
+                const period=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;
+                const amount=Math.max(0,Math.min(Number(asset.cost||0)*.15/12,Number(asset.cost||0)-cumulative));
+                if(amount<=0.0005){window.state.entries=window.state.entries.filter(e=>e.id!==entry.id);return;}
+                entry.date=localDateString(new Date(dt.getFullYear(),dt.getMonth()+1,0));
+                entry.description='إهلاك شهري - '+asset.name+' - '+period;
+                entry.assetId=asset.id;entry.depreciationPeriod=period;
+                entry.details=[
+                    {accountCode:asset.expenseAccount,debit:amount,credit:0,note:'مصروف إهلاك '+asset.name},
+                    {accountCode:asset.accumAccount,debit:0,credit:amount,note:'مجمع إهلاك '+asset.name}
+                ];
+                cumulative+=amount;kept++;
+            });
+            asset.postedMonths=kept;
+            return {recalculated:kept,removed:linked.length-kept};
         }
         function saveFixedAsset(){
             if(!canWrite())return alert('غير مصرح');
             const id=document.getElementById('fixedAssetEditId').value;
             const existing=id?(window.state.assets||[]).find(a=>a.id===id):null;
             if(id&&!existing)return alert('الأصل المراد تعديله غير موجود');
-            if(existing&&Number(existing.postedMonths||0)>0)return alert('لا يمكن تعديل أصل تم ترحيل إهلاكه؛ حفاظاً على سلامة القيود السابقة.');
+            if(existing&&Number(existing.postedMonths||0)>0&&!isFinanceManager())return alert('تعديل أصل تم ترحيل إهلاكه متاح للمدير المالي فقط.');
             const name=document.getElementById('faName').value.trim(),cost=Number(document.getElementById('faCost').value),date=document.getElementById('faDate').value;
             const assetAccount=document.getElementById('faAssetAccount').value,accumAccount=document.getElementById('faAccumAccount').value,expenseAccount=document.getElementById('faExpenseAccount').value,creditAccount=document.getElementById('faCreditAccount').value;
             if(!name||!(cost>0)||!Number.isFinite(cost)||!date)return alert('أدخل اسم الأصل والتكلفة وتاريخ الاستخدام بصورة صحيحة');
-            if(window.state.closedThrough&&date<=window.state.closedThrough)return alert('تاريخ الأصل يقع ضمن فترة مقفلة');
+            if(isAccountingPeriodLocked(date)&&!(existing&&isFinanceManager()))return alert('تاريخ الأصل يقع ضمن فترة مقفلة؛ يمكن للمدير المالي فقط تعديل الأصل الموجود.');
             const accA=window.state.accounts.find(a=>a.code===assetAccount),accM=window.state.accounts.find(a=>a.code===accumAccount),accE=window.state.accounts.find(a=>a.code===expenseAccount),accC=window.state.accounts.find(a=>a.code===creditAccount);
             if(!accA||accA.type!=='أصول'||!accM||accM.type!=='أصول'||!accE||accE.type!=='مصروفات'||!accC)return alert('تحقق من الحسابات المختارة: حساب الأصل والمجمع يجب أن يكونا من الأصول، ومصروف الإهلاك من المصروفات.');
             if(assetAccount===accumAccount)return alert('لا يجوز اختيار نفس الحساب للأصل ومجمع الإهلاك');
             if(existing){
+                const previous={name:existing.name,cost:existing.cost,date:existing.date,assetAccount:existing.assetAccount,accumAccount:existing.accumAccount,expenseAccount:existing.expenseAccount,creditAccount:existing.creditAccount,postedMonths:Number(existing.postedMonths||0)};
                 const jv=findAssetAcquisitionEntry(existing);
                 if(!jv)return alert('لم يتم العثور على قيد شراء الأصل المرتبط به.');
                 jv.date=date;jv.description='إثبات شراء أصل ثابت: '+name;jv.assetId=existing.id;
                 jv.details=[{accountCode:assetAccount,debit:cost,credit:0,note:'تكلفة الأصل '+name},{accountCode:creditAccount,debit:0,credit:cost,note:'مقابل شراء الأصل'}];
                 Object.assign(existing,{name,cost,date,assetAccount,accumAccount,expenseAccount,creditAccount,acquisitionEntryId:jv.id});
-                addAudit('تعديل أصل ثابت','أصل ثابت',existing.id,name+' - '+formatNum(cost));
+                const depResult=previous.postedMonths>0?rebuildPostedDepreciationForAsset(existing):{recalculated:0,removed:0};
+                addAudit('تعديل أصل ثابت','أصل ثابت',existing.id,`قبل: ${previous.name} | ${formatNum(previous.cost)} | ${previous.date} | بعد: ${name} | ${formatNum(cost)} | ${date} | قيود الإهلاك المعاد احتسابها: ${depResult.recalculated} | القيود المحذوفة بسبب نفاد القيمة: ${depResult.removed}`);
             }else{
                 const assetId='FA-'+Date.now();
                 const jv={id:nextDocumentId('JV-',window.state.entries),date,description:'إثبات شراء أصل ثابت: '+name,assetId,details:[{accountCode:assetAccount,debit:cost,credit:0,note:'تكلفة الأصل '+name},{accountCode:creditAccount,debit:0,credit:cost,note:'مقابل شراء الأصل'}]};
@@ -3181,7 +3281,7 @@
         }
         function deleteFixedAsset(assetId){
             if(!canWrite())return alert('غير مصرح');const asset=(window.state.assets||[]).find(a=>a.id===assetId);if(!asset)return;
-            if(Number(asset.postedMonths||0)>0||window.state.entries.some(e=>e.assetId===assetId&&e.depreciationPeriod))return alert('لا يمكن حذف أصل تم ترحيل إهلاكه.');
+            if(Number(asset.postedMonths||0)>0||window.state.entries.some(e=>e.assetId===assetId&&e.depreciationPeriod))return alert('لا يمكن حذف أصل تم ترحيل إهلاكه؛ يمكن للمدير المالي تعديل بياناته أو تعديل قيود الإهلاك بدلاً من حذف تاريخه.');
             const acquisition=findAssetAcquisitionEntry(asset);if(!acquisition)return alert('تعذر العثور على قيد شراء الأصل.');
             if(!confirm('سيتم حذف الأصل وقيد إثبات شرائه المرتبط به. هل تريد المتابعة؟'))return;
             window.state.entries=window.state.entries.filter(e=>e.id!==acquisition.id);window.state.assets=window.state.assets.filter(a=>a.id!==assetId);addAudit('حذف أصل ثابت وقيد شرائه','أصل ثابت',assetId,asset.name);
@@ -3193,11 +3293,11 @@
                 const dep=Math.min(Number(a.cost)||0,(Number(a.cost)||0)*.15/12*(Number(a.postedMonths)||0));
                 const accountName=code=>{const x=window.state.accounts.find(z=>z.code===code);return x?`${x.code} - ${x.name}`:`${code||'-'}`;};
                 const locked=Number(a.postedMonths||0)>0;
-                return `<tr><td><b>${a.name}</b><div class="small text-muted">${a.id}</div></td><td>${formatDate(a.date)}</td><td class="num-right">${formatNum(a.cost)}</td><td class="num-right">${formatNum(a.cost*.15)}</td><td class="num-right">${formatNum(dep)}</td><td class="num-right fw-bold">${formatNum(Math.max(0,a.cost-dep))}</td><td>${accountName(a.assetAccount)}</td><td>${accountName(a.accumAccount)}</td><td>${accountName(a.expenseAccount)}</td><td>${accountName(a.creditAccount)}</td><td>${a.postedMonths||0}</td><td><button class="btn btn-sm btn-outline-primary" onclick="addFixedAsset('${a.id}')" ${locked?'disabled':''}>تعديل</button> <button class="btn btn-sm btn-outline-danger" onclick="deleteFixedAsset('${a.id}')" ${locked?'disabled':''}>حذف</button></td></tr>`;
+                return `<tr><td><b>${a.name}</b><div class="small text-muted">${a.id}</div></td><td>${formatDate(a.date)}</td><td class="num-right">${formatNum(a.cost)}</td><td class="num-right">${formatNum(a.cost*.15)}</td><td class="num-right">${formatNum(dep)}</td><td class="num-right fw-bold">${formatNum(Math.max(0,a.cost-dep))}</td><td>${accountName(a.assetAccount)}</td><td>${accountName(a.accumAccount)}</td><td>${accountName(a.expenseAccount)}</td><td>${accountName(a.creditAccount)}</td><td>${a.postedMonths||0}</td><td><button class="btn btn-sm btn-outline-primary" onclick="addFixedAsset('${a.id}')" ${locked&&!isFinanceManager()?'disabled':''}>تعديل</button> <button class="btn btn-sm btn-outline-danger" onclick="deleteFixedAsset('${a.id}')" ${locked?'disabled':''}>حذف</button></td></tr>`;
             }).join('');
             el.innerHTML=`<div class="table-responsive"><table class="table table-bordered table-compact text-center align-middle mb-0"><thead class="table-dark-orange"><tr><th>الأصل</th><th>تاريخ الاستخدام</th><th>التكلفة</th><th>الإهلاك السنوي 15%</th><th>مجمع الإهلاك المرحل</th><th>صافي القيمة الدفترية</th><th>حساب الأصل</th><th>حساب المجمع</th><th>حساب المصروف</th><th>الحساب المقابل</th><th>الأشهر المرحلة</th><th>الإجراءات</th></tr></thead><tbody>${rows||'<tr><td colspan="12" class="text-muted">لا توجد أصول مسجلة</td></tr>'}</tbody></table></div>`;
         }
-        function postDepreciation(){if(!['admin','accountant'].includes(currentUser?.role))return alert('غير مصرح');const target=document.getElementById('deprToDate').value;if(!target)return alert('حدد التاريخ');if(window.state.closedThrough&&target<=window.state.closedThrough)return alert('تاريخ الإهلاك يقع ضمن فترة مقفلة.');let posted=0;window.state.assets.forEach(a=>{const start=new Date(a.date+'T00:00:00'),end=new Date(target+'T00:00:00');if(end<start)return;let eligible=(end.getFullYear()-start.getFullYear())*12+(end.getMonth()-start.getMonth())+1;eligible=Math.max(0,eligible);const maxMonths=Math.ceil(12/.15);const desired=Math.min(eligible,maxMonths);while((a.postedMonths||0)<desired){const monthIndex=a.postedMonths||0;const dt=new Date(start.getFullYear(),start.getMonth()+monthIndex,1);const period=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;if(dt>end)break;const amount=Math.min(a.cost*.15/12,a.cost-(a.postedMonths||0)*a.cost*.15/12);if(amount<=0.0005)break;const duplicate=window.state.entries.some(e=>e.assetId===a.id&&e.depreciationPeriod===period);if(!duplicate){window.state.entries.push({id:nextDocumentId('JV-',window.state.entries),date:localDateString(new Date(dt.getFullYear(),dt.getMonth()+1,0)),description:'إهلاك شهري - '+a.name+' - '+period,assetId:a.id,depreciationPeriod:period,details:[{accountCode:a.expenseAccount,debit:amount,credit:0,note:'مصروف إهلاك '+a.name},{accountCode:a.accumAccount,debit:0,credit:amount,note:'مجمع إهلاك '+a.name}]});posted++;}a.postedMonths=(a.postedMonths||0)+1;}});if(posted){addAudit('ترحيل إهلاك','أصول ثابتة',target,'عدد الأشهر: '+posted);saveState();renderFixedAssets();renderEntriesTable();alert('تم إنشاء '+posted+' قيد إهلاك شهري.');}else alert('لا توجد أشهر إهلاك جديدة للترحيل.');}
+        function postDepreciation(){if(!['admin','accountant'].includes(currentUser?.role))return alert('غير مصرح');const target=document.getElementById('deprToDate').value;if(!target)return alert('حدد التاريخ');if(isAccountingPeriodLocked(target))return alert('تاريخ الإهلاك يقع ضمن فترة مقفلة؛ يمكن للمدير المالي فقط الترحيل في فترة مقفلة.');let posted=0;window.state.assets.forEach(a=>{const start=new Date(a.date+'T00:00:00'),end=new Date(target+'T00:00:00');if(end<start)return;let eligible=(end.getFullYear()-start.getFullYear())*12+(end.getMonth()-start.getMonth())+1;eligible=Math.max(0,eligible);const maxMonths=Math.ceil(12/.15);const desired=Math.min(eligible,maxMonths);while((a.postedMonths||0)<desired){const monthIndex=a.postedMonths||0;const dt=new Date(start.getFullYear(),start.getMonth()+monthIndex,1);const period=`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}`;if(dt>end)break;const amount=Math.min(a.cost*.15/12,a.cost-(a.postedMonths||0)*a.cost*.15/12);if(amount<=0.0005)break;const duplicate=window.state.entries.some(e=>e.assetId===a.id&&e.depreciationPeriod===period);if(!duplicate){window.state.entries.push({id:nextDocumentId('JV-',window.state.entries),date:localDateString(new Date(dt.getFullYear(),dt.getMonth()+1,0)),description:'إهلاك شهري - '+a.name+' - '+period,assetId:a.id,depreciationPeriod:period,details:[{accountCode:a.expenseAccount,debit:amount,credit:0,note:'مصروف إهلاك '+a.name},{accountCode:a.accumAccount,debit:0,credit:amount,note:'مجمع إهلاك '+a.name}]});posted++;}a.postedMonths=(a.postedMonths||0)+1;}});if(posted){addAudit('ترحيل إهلاك','أصول ثابتة',target,'عدد الأشهر: '+posted);saveState();renderFixedAssets();renderEntriesTable();alert('تم إنشاء '+posted+' قيد إهلاك شهري.');}else alert('لا توجد أشهر إهلاك جديدة للترحيل.');}
 
         function renderAuditLog(){
             const tbody=document.getElementById('auditLogTableBody');if(!tbody)return;
